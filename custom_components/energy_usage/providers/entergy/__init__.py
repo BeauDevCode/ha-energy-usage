@@ -124,6 +124,33 @@ class EntergyProvider:
     async def async_logout(self, budget: RequestBudget) -> None:
         await self._client.async_logout(budget)
 
+    # Temporary bridge for the existing coordinator. Task 6 replaces these
+    # provider-specific calls with async_confirm_location/async_fetch_intervals.
+    @property
+    def authenticated(self) -> bool:
+        return self._client.authenticated
+
+    def clear_token(self) -> None:
+        self._client.clear_token()
+
+    async def async_get_account(self, private_location_id: str, budget: RequestBudget) -> Account:
+        return await self._client.async_get_account(private_location_id, budget)
+
+    async def async_get_weekly_usage(
+        self,
+        private_location_id: str,
+        start: Any,
+        budget: RequestBudget,
+        *,
+        fallback_time_zone: str,
+    ) -> tuple[Any, ...]:
+        return await self._client.async_get_weekly_usage(
+            private_location_id,
+            start,
+            budget,
+            fallback_time_zone=fallback_time_zone,
+        )
+
 
 def _create(session: ClientSession, auth: Mapping[str, Any]) -> EntergyProvider:
     return EntergyProvider(session, auth)

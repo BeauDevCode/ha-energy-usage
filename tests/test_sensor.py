@@ -197,10 +197,11 @@ async def test_real_sensor_platform_state_registry_and_coordinator_availability(
         version=1,
         minor_version=0,
         data={
-            "username": "private-user",
-            "password": "private-password",
-            "account_id": "private-account",
-            "public_id": PUBLIC_ID,
+            "provider_key": "entergy",
+            "auth": {"username": "private-user", "password": "private-password"},
+            "private_location_id": "private-location",
+            "location_public_id": PUBLIC_ID,
+            "provider_schema_version": 1,
             "time_zone": "America/Chicago",
             "ledger_initialized": True,
         },
@@ -215,8 +216,8 @@ async def test_real_sensor_platform_state_registry_and_coordinator_availability(
     client.clear_token = Mock()
     with (
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
-        patch.object(integration, "EntergyLedger", return_value=ledger),
-        patch.object(integration, "EntergyApiClient", return_value=client),
+        patch.object(integration, "EnergyLedger", return_value=ledger),
+        patch.object(integration, "create_provider", return_value=client),
         patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
     ):
         assert await hass.config_entries.async_setup(item.entry_id)

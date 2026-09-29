@@ -17,9 +17,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import EntergyApiClient
 from .const import (
-    CONF_ACCOUNT_ID,
+    CONF_LOCATION_PUBLIC_ID,
+    CONF_PRIVATE_LOCATION_ID,
     CONF_SCAN_INTERVAL_SECONDS,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
@@ -35,7 +35,7 @@ from .errors import (
     PolicyError,
     RateLimitError,
 )
-from .ledger import EntergyLedger, LedgerRepairError, reconcile
+from .ledger import EnergyLedger, LedgerRepairError, reconcile
 from .models import Account, EnergyInterval, LedgerMutation, LedgerState, UsageSnapshot
 from .parser import summarize_usage
 from .provider import RequestBudget
@@ -58,6 +58,23 @@ _BACKFILL_INTERVAL = 30 * 60
 _BACKOFF = (3600, 7200, 14_400, 28_800, 86_400)
 
 type _DiagnosticsValue = str | int | bool | None | list[str]
+
+
+class CoordinatorProvider(Protocol):
+    """Temporary transport surface removed by the provider polling refactor."""
+
+    async def async_get_account(
+        self, private_location_id: str, budget: RequestBudget
+    ) -> Account: ...
+
+    async def async_get_weekly_usage(
+        self,
+        private_location_id: str,
+        start: date,
+        budget: RequestBudget,
+        *,
+        fallback_time_zone: str,
+    ) -> tuple[EnergyInterval, ...]: ...
 
 
 class _Clock(Protocol):
@@ -140,8 +157,8 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        client: EntergyApiClient,
-        ledger: EntergyLedger,
+        client: CoordinatorProvider,
+        ledger: EnergyLedger,
         *,
         time_zone: str,
         _clock: _Clock | None = None,
@@ -164,8 +181,8 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._entry = entry
         self._client = client
         self._ledger = ledger
-        self._account_id = str(entry.data[CONF_ACCOUNT_ID])
-        self._public_id = str(entry.data["public_id"])
+        self._account_id = str(entry.data[CONF_PRIVATE_LOCATION_ID])
+        self._public_id = str(entry.data[CONF_LOCATION_PUBLIC_ID])
         self._time_zone = time_zone
         self._zone = ZoneInfo(time_zone)
         self._clock = _clock or _SystemClock()

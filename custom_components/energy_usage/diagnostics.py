@@ -1,4 +1,4 @@
-"""Strictly allowlisted diagnostics for Entergy Usage."""
+"""Strictly allowlisted diagnostics for Energy Usage."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
-from . import EntergyConfigEntry
+from . import EnergyUsageConfigEntry
 from .const import DOMAIN
 
 type _DiagnosticValue = str | int | bool | None
@@ -30,7 +30,7 @@ _APPROVED = (
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant,
-    entry: EntergyConfigEntry,
+    entry: EnergyUsageConfigEntry,
 ) -> dict[str, _DiagnosticValue]:
     """Build a new object from the fixed public diagnostics contract."""
     status = entry.runtime_data.coordinator.diagnostics()

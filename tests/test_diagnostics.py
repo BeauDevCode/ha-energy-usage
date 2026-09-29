@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
-from custom_components.energy_usage import EntergyRuntimeData
+from custom_components.energy_usage import EnergyUsageRuntimeData
 from custom_components.energy_usage.diagnostics import async_get_config_entry_diagnostics
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component import common  # type: ignore[import-untyped]
@@ -69,7 +69,7 @@ async def test_diagnostics_exact_allowlist_is_fresh_json_and_excludes_canaries(
         data={"payload": canary},
         last_exception=RuntimeError(canary),
     )
-    entry.runtime_data = EntergyRuntimeData(
+    entry.runtime_data = EnergyUsageRuntimeData(
         cast(Any, SimpleNamespace(access_token=canary, url=canary, headers={canary: canary})),
         cast(Any, SimpleNamespace(raw=canary)),
         cast(Any, coordinator),
@@ -103,7 +103,7 @@ async def test_diagnostics_resolves_manifest_and_home_assistant_versions(
         if key not in {"integration_version", "home_assistant_version"}
     }
     coordinator = SimpleNamespace(diagnostics=lambda: status)
-    entry.runtime_data = EntergyRuntimeData(
+    entry.runtime_data = EnergyUsageRuntimeData(
         cast(Any, SimpleNamespace()),
         cast(Any, SimpleNamespace()),
         cast(Any, coordinator),

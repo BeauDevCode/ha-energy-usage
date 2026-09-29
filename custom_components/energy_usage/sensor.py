@@ -19,9 +19,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from . import EntergyConfigEntry
+from . import EnergyUsageConfigEntry
 from .coordinator import EntergyDataUpdateCoordinator
-from .entity import EntergyEntity
+from .entity import EnergyUsageEntity
 from .models import Freshness, UsageSnapshot
 
 type _SnapshotValue = Decimal | datetime | str | None
@@ -133,19 +133,19 @@ SENSORS: tuple[EntergySensorEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: EntergyConfigEntry,
+    entry: EnergyUsageConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up sensors from the typed runtime container."""
     del hass
     runtime = entry.runtime_data
-    public_id = str(entry.data["public_id"])
+    public_id = str(entry.data["location_public_id"])
     async_add_entities(
         EntergySensor(runtime.coordinator, public_id, description) for description in SENSORS
     )
 
 
-class EntergySensor(EntergyEntity, SensorEntity):
+class EntergySensor(EnergyUsageEntity, SensorEntity):
     """One explicitly allowlisted Entergy sensor."""
 
     entity_description: EntergySensorEntityDescription

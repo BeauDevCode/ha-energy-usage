@@ -1,4 +1,4 @@
-"""Base entities for Entergy."""
+"""Provider-neutral Energy Usage entities."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from .const import DOMAIN
 from .coordinator import EntergyDataUpdateCoordinator
 
 
-class EntergyEntity(CoordinatorEntity[EntergyDataUpdateCoordinator]):
-    """Base Entergy entity."""
+class EnergyUsageEntity(CoordinatorEntity[EntergyDataUpdateCoordinator]):
+    """Base entity for one pseudonymous service location."""
 
     _attr_has_entity_name = True
 
@@ -23,7 +23,7 @@ class EntergyEntity(CoordinatorEntity[EntergyDataUpdateCoordinator]):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, public_id)},
             entry_type=DeviceEntryType.SERVICE,
-            name="Entergy Usage",
-            manufacturer="Entergy",
-            model="Cloud utility usage",
+            name="Energy Usage",
+            manufacturer="Energy Usage",
+            model="Cloud energy usage",
         )

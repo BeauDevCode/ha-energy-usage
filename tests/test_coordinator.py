@@ -216,11 +216,17 @@ def entry(
 ) -> Any:
     item = common.MockConfigEntry(
         domain="energy_usage",
+        unique_id=PUBLIC_ID,
+        version=1,
         data={
-            "username": "synthetic-user",
-            "password": "synthetic-password",
-            "account_id": ACCOUNT_ID,
-            "public_id": PUBLIC_ID,
+            "provider_key": "entergy",
+            "auth": {
+                "username": "synthetic-user",
+                "password": "synthetic-password",
+            },
+            "private_location_id": ACCOUNT_ID,
+            "location_public_id": PUBLIC_ID,
+            "provider_schema_version": 1,
             "time_zone": "America/Chicago",
             "ledger_initialized": initialized,
         },

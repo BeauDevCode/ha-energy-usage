@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from custom_components.energy_usage.ledger import EntergyLedger, reconcile
+from custom_components.energy_usage.ledger import EnergyLedger, reconcile
 from custom_components.energy_usage.models import EnergyInterval, LedgerState, LedgerTotals
 from custom_components.energy_usage.statistics import (
     StatisticsQueueResult,
@@ -266,7 +266,7 @@ async def test_restart_verifies_or_requeues_persisted_downward_correction(
     hass_storage: dict[str, Any],
     queue_lost: bool,
 ) -> None:
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = EnergyLedger(hass, PUBLIC_ID, provider_key="entergy", provider_schema_version=1)
     await ledger.async_load(initialized=False)
     assert not (
         await ledger.async_ingest(
@@ -315,7 +315,7 @@ async def test_restart_verifies_or_requeues_persisted_downward_correction(
     assert ledger.state.statistics_pending_fingerprint == corrected_fingerprint
     del ledger, corrected_batches
     await async_wait_recording_done(hass)
-    restarted = EntergyLedger(hass, PUBLIC_ID)
+    restarted = EnergyLedger(hass, PUBLIC_ID, provider_key="entergy", provider_schema_version=1)
     restored = await restarted.async_load(initialized=True)
     expected = build(restored, restored.statistics_pending_from)
     assert statistics_fingerprint(expected) == restored.statistics_pending_fingerprint

@@ -223,7 +223,12 @@ def _fingerprint(data: dict[str, Any]) -> str:
     return sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _encode(state: LedgerState) -> dict[str, Any]:
+def _encode(
+    state: LedgerState,
+    *,
+    provider_key: str = "entergy",
+    provider_schema_version: int = 1,
+) -> dict[str, Any]:
     intervals = {}
     for item in state.intervals:
         key = _iso(item.start)
@@ -242,6 +247,8 @@ def _encode(state: LedgerState) -> dict[str, Any]:
         }
     data = {
         "schema_version": state.schema_version,
+        "provider_key": provider_key,
+        "provider_schema_version": provider_schema_version,
         "revision": state.revision,
         "intervals": intervals,
         "baseline": {
@@ -260,7 +267,12 @@ def _encode(state: LedgerState) -> dict[str, Any]:
     return {**data, "fingerprint": _fingerprint(data)}
 
 
-def _decode(raw: object) -> LedgerState:
+def _decode(
+    raw: object,
+    *,
+    provider_key: str = "entergy",
+    provider_schema_version: int = 1,
+) -> LedgerState:
     data = dict(_mapping(raw))
     schema = data.get("schema_version")
     if type(schema) is int and schema > _SCHEMA_VERSION:
@@ -268,6 +280,11 @@ def _decode(raw: object) -> LedgerState:
     fingerprint = data.pop("fingerprint")
     if fingerprint != _fingerprint(data) or _integer(data["schema_version"]) != _SCHEMA_VERSION:
         raise ValueError("invalid ledger fingerprint or schema")
+    if (
+        data.get("provider_key") != provider_key
+        or _integer(data.get("provider_schema_version")) != provider_schema_version
+    ):
+        raise ValueError("provider ledger mismatch")
     intervals = []
     for start, raw_item in _mapping(data["intervals"]).items():
         item = _mapping(raw_item)
@@ -304,7 +321,14 @@ def _decode(raw: object) -> LedgerState:
         statistics_verified_fingerprint=_text(data["statistics_verified_fingerprint"]),
     )
     # Reject extra fields, duplicate UTC keys, and noncanonical timestamp spellings.
-    if _encode(state) != raw:
+    if (
+        _encode(
+            state,
+            provider_key=provider_key,
+            provider_schema_version=provider_schema_version,
+        )
+        != raw
+    ):
         raise ValueError("noncanonical ledger snapshot")
     for hour in (state.statistics_pending_from, state.statistics_verified_through):
         if hour is not None and (hour.minute or hour.second or hour.microsecond):
@@ -312,7 +336,7 @@ def _decode(raw: object) -> LedgerState:
     return state
 
 
-class EntergyLedger:
+class EnergyLedger:
     """Persist prepared mutations and expose only verified immutable state.
 
     Call async_load before mutations. A missing, uninitialized store starts with
@@ -321,9 +345,25 @@ class EntergyLedger:
     a repaired store. Shutdown deferrals are safe to retry after restart.
     """
 
-    def __init__(self, hass: HomeAssistant, public_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        public_id: str,
+        *,
+        provider_key: str,
+        provider_schema_version: int,
+    ) -> None:
+        if (
+            not isinstance(provider_key, str)
+            or not provider_key
+            or type(provider_schema_version) is not int
+            or provider_schema_version < 1
+        ):
+            raise ValueError("invalid provider ledger identity")
         self._hass = hass
         self._key = f"energy_usage.ledger_{public_id}"
+        self._provider_key = provider_key
+        self._provider_schema_version = provider_schema_version
         self._store = self._new_store()
         self._state = LedgerState(schema_version=_SCHEMA_VERSION)
         self._lock = asyncio.Lock()
@@ -361,7 +401,11 @@ class EntergyLedger:
                         raise LedgerRepairError
                     candidate = self._state
                 else:
-                    candidate = _decode(raw)
+                    candidate = _decode(
+                        raw,
+                        provider_key=self._provider_key,
+                        provider_schema_version=self._provider_schema_version,
+                    )
             except UnsupportedStorageVersionError:
                 self._blocked = True
                 raise LedgerRepairError(LedgerRepairKind.FUTURE) from None
@@ -387,14 +431,34 @@ class EntergyLedger:
         if mutation.repair or mutation.state.revision != self._state.revision + 1:
             return self._deferred(repair=True)
         try:
-            candidate = _encode(mutation.state)
-            _decode(candidate)
+            candidate = _encode(
+                mutation.state,
+                provider_key=self._provider_key,
+                provider_schema_version=self._provider_schema_version,
+            )
+            _decode(
+                candidate,
+                provider_key=self._provider_key,
+                provider_schema_version=self._provider_schema_version,
+            )
             await self._store.async_save(candidate)
             readback = await self._new_store(read_only=True).async_load()
             if self._stopping():
                 return self._deferred()
-            verified = _decode(readback)
-            if verified.revision != mutation.state.revision or _encode(verified) != candidate:
+            verified = _decode(
+                readback,
+                provider_key=self._provider_key,
+                provider_schema_version=self._provider_schema_version,
+            )
+            if (
+                verified.revision != mutation.state.revision
+                or _encode(
+                    verified,
+                    provider_key=self._provider_key,
+                    provider_schema_version=self._provider_schema_version,
+                )
+                != candidate
+            ):
                 raise LedgerRepairError
         except Exception:
             if self._stopping():

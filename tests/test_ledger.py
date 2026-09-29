@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from custom_components.energy_usage import ledger as api
 from custom_components.energy_usage.ledger import (
-    EntergyLedger,
+    EnergyLedger,
     LedgerRepairError,
     LedgerRepairKind,
     async_import_legacy_v1_store,
@@ -27,6 +27,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util.file import WriteError
 
 PUBLIC_ID = "a" * 32
+PROVIDER_KEY = "entergy"
+PROVIDER_SCHEMA_VERSION = 1
 KEY = f"energy_usage.ledger_{PUBLIC_ID}"
 LEGACY_KEY = "energy_usage_usage_test-entry"
 HOUR = datetime(2026, 9, 1, 10, tzinfo=UTC)
@@ -48,13 +50,27 @@ def interval() -> EnergyInterval:
     )
 
 
-async def loaded(hass: HomeAssistant) -> EntergyLedger:
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+def new_ledger(
+    hass: HomeAssistant,
+    *,
+    provider_key: str = PROVIDER_KEY,
+    provider_schema_version: int = PROVIDER_SCHEMA_VERSION,
+) -> EnergyLedger:
+    return EnergyLedger(
+        hass,
+        PUBLIC_ID,
+        provider_key=provider_key,
+        provider_schema_version=provider_schema_version,
+    )
+
+
+async def loaded(hass: HomeAssistant) -> EnergyLedger:
+    ledger = new_ledger(hass)
     await ledger.async_load(initialized=False)
     return ledger
 
 
-def mutation(ledger: EntergyLedger) -> LedgerMutation:
+def mutation(ledger: EnergyLedger) -> LedgerMutation:
     return LedgerMutation(
         replace(ledger.state, revision=ledger.state.revision + 1, intervals=(interval(),)),
         inserted=1,
@@ -81,13 +97,39 @@ async def test_store_round_trip(hass: HomeAssistant, hass_storage: dict[str, Any
     assert persisted["version"] == 2
     data = persisted["data"]
     assert data["schema_version"] == 2 and data["revision"] == 1
+    assert data["provider_key"] == PROVIDER_KEY
+    assert data["provider_schema_version"] == PROVIDER_SCHEMA_VERSION
     assert data["baseline"]["cost"] == "3.10"
     assert data["intervals"][HOUR.isoformat()]["import_kwh"] == "1.234567890123456789"
     assert data["intervals"][HOUR.isoformat()]["end"] == "2026-09-01T11:00:00+00:00"
     assert len(data["fingerprint"]) == 64
-    restarted = EntergyLedger(hass, PUBLIC_ID)
+    restarted = new_ledger(hass)
     assert await restarted.async_load(initialized=True) == candidate
     assert restarted.state == candidate
+
+
+@pytest.mark.parametrize(
+    ("provider_key", "provider_schema_version"),
+    [("other", PROVIDER_SCHEMA_VERSION), (PROVIDER_KEY, PROVIDER_SCHEMA_VERSION + 1)],
+)
+async def test_provider_header_mismatch_blocks_before_mutation(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    provider_key: str,
+    provider_schema_version: int,
+) -> None:
+    ledger = await loaded(hass)
+    assert not (await ledger.async_ingest(mutation(ledger))).deferred
+    before = deepcopy(hass_storage[KEY])
+    restarted = new_ledger(
+        hass,
+        provider_key=provider_key,
+        provider_schema_version=provider_schema_version,
+    )
+    with pytest.raises(LedgerRepairError, match="ledger_repair"):
+        await restarted.async_load(initialized=True)
+    assert hass_storage[KEY] == before
+    assert (await restarted.async_ingest(mutation(restarted))).deferred
 
 
 async def test_store_options(hass: HomeAssistant) -> None:
@@ -118,7 +160,7 @@ async def test_future_store_version_never_overwritten(
 ) -> None:
     hass_storage[KEY] = {"version": 3, "data": {"private": "canary"}}
     before = deepcopy(hass_storage[KEY])
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     with pytest.raises(LedgerRepairError, match="ledger_repair") as error:
         await ledger.async_load(initialized=initialized)
     assert error.value.kind is LedgerRepairKind.FUTURE
@@ -131,7 +173,7 @@ async def test_future_store_version_never_overwritten(
 async def test_missing_initialized_or_corrupt_store_blocks(
     hass: HomeAssistant, hass_storage: dict[str, Any]
 ) -> None:
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     before = ledger.state
     # HA reports both a missing file and recovered corrupt JSON as None.
     with pytest.raises(LedgerRepairError) as error:
@@ -147,7 +189,7 @@ async def test_corrupt_payload_blocks_even_when_uninitialized(
     hass: HomeAssistant, hass_storage: dict[str, Any], bad: object
 ) -> None:
     hass_storage[KEY] = {"version": 2, "data": bad}
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     with pytest.raises(LedgerRepairError) as error:
         await ledger.async_load(initialized=False)
     expected = (
@@ -245,7 +287,7 @@ async def test_statistics_markers_survive_restart_and_require_matching_fingerpri
     assert stale.deferred and ledger.state is before
     verified = await ledger.async_mark_statistics_verified(through=HOUR, fingerprint=FINGERPRINT)
     assert not verified.deferred
-    restarted = EntergyLedger(hass, PUBLIC_ID)
+    restarted = new_ledger(hass)
     await restarted.async_load(initialized=True)
     assert restarted.state.statistics_pending_from is None
     assert restarted.state.statistics_pending_fingerprint is None
@@ -404,7 +446,7 @@ async def test_concurrent_mutations_do_not_lose_a_verified_revision(hass: HomeAs
 async def test_unreadable_store_never_exposes_error_payload(
     hass: HomeAssistant, hass_storage: dict[str, Any]
 ) -> None:
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     with (
         patch.object(Store, "async_load", side_effect=OSError("private canary")),
         pytest.raises(LedgerRepairError) as error,
@@ -424,7 +466,7 @@ async def test_queue_failure_leaves_durable_pending_marker(hass: HomeAssistant) 
     )
     assert not (await ledger.async_ingest(LedgerMutation(candidate))).deferred
     # A caller's later queue failure cannot clear the already persisted work.
-    restarted = EntergyLedger(hass, PUBLIC_ID)
+    restarted = new_ledger(hass)
     await restarted.async_load(initialized=True)
     assert restarted.state.statistics_pending_from == HOUR
     assert restarted.state.statistics_pending_fingerprint == FINGERPRINT
@@ -460,7 +502,7 @@ async def test_corrupt_json_store_recovery_none_blocks_initialized_ledger(
 
     error = HomeAssistantError("synthetic corrupt JSON")
     error.__cause__ = JSONDecodeError("synthetic syntax error", "{", 1)
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     before = ledger.state
     with (
         # Bypass only the fixture's in-memory loader; retain Store.async_load.
@@ -922,7 +964,7 @@ async def test_rehashed_malformed_store_fields_block_import(
     raw[field] = value
     raw.pop("fingerprint")
     raw["fingerprint"] = api._fingerprint(raw)
-    restarted = EntergyLedger(hass, PUBLIC_ID)
+    restarted = new_ledger(hass)
     with pytest.raises(LedgerRepairError):
         await restarted.async_load(initialized=True)
     assert restarted.state.revision == 0
@@ -944,14 +986,14 @@ async def test_rehashed_store_still_rejects_invalid_canonical_intervals(
     raw.pop("fingerprint")
     raw["fingerprint"] = api._fingerprint(raw)
     with pytest.raises(LedgerRepairError):
-        await EntergyLedger(hass, PUBLIC_ID).async_load(initialized=True)
+        await new_ledger(hass).async_load(initialized=True)
 
 
 @pytest.mark.parametrize("state", [CoreState.stopping, CoreState.final_write])
 async def test_shutdown_during_initial_load_never_promotes_state(
     hass: HomeAssistant, state: CoreState
 ) -> None:
-    ledger = EntergyLedger(hass, PUBLIC_ID)
+    ledger = new_ledger(hass)
     hass.set_state(state)
     try:
         with pytest.raises(LedgerRepairError):
@@ -1002,7 +1044,7 @@ async def test_persisted_interval_representation_limit_blocks_load(
     raw.pop("fingerprint")
     raw["fingerprint"] = api._fingerprint(raw)
     with pytest.raises(LedgerRepairError):
-        await EntergyLedger(hass, PUBLIC_ID).async_load(initialized=True)
+        await new_ledger(hass).async_load(initialized=True)
 
 
 @pytest.mark.parametrize("value", ["1e-1025", "0e1025", "1." + "0" * 1024])
@@ -1031,7 +1073,7 @@ async def test_valid_tiny_intervals_prune_to_larger_exact_baseline(hass: HomeAss
     ledger = await loaded(hass)
     assert not (await ledger.async_ingest(pruned)).deferred
     assert (
-        await EntergyLedger(hass, PUBLIC_ID).async_load(initialized=True)
+        await new_ledger(hass).async_load(initialized=True)
     ).baseline.import_kwh == expected
 
 
@@ -1045,7 +1087,7 @@ async def test_derived_baseline_above_fixed_resource_ceiling_is_rejected(
     raw.pop("fingerprint")
     raw["fingerprint"] = api._fingerprint(raw)
     with pytest.raises(LedgerRepairError):
-        await EntergyLedger(hass, PUBLIC_ID).async_load(initialized=True)
+        await new_ledger(hass).async_load(initialized=True)
 
 
 @pytest.mark.parametrize(
@@ -1074,4 +1116,4 @@ async def test_nonfinite_recorder_baseline_blocks_at_store_boundary(
     raw.pop("fingerprint")
     raw["fingerprint"] = api._fingerprint(raw)
     with pytest.raises(LedgerRepairError):
-        await EntergyLedger(hass, PUBLIC_ID).async_load(initialized=True)
+        await new_ledger(hass).async_load(initialized=True)
