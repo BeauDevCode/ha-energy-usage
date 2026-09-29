@@ -17,7 +17,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from .api import EntergyApiClient, RequestBudget
+from .api import EntergyApiClient
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_SCAN_INTERVAL_SECONDS,
@@ -29,7 +29,7 @@ from .const import (
 from .errors import (
     AuthError,
     ChallengeError,
-    EntergyError,
+    EnergyUsageError,
     ErrorCategory,
     PayloadError,
     PolicyError,
@@ -38,6 +38,7 @@ from .errors import (
 from .ledger import EntergyLedger, LedgerRepairError, reconcile
 from .models import Account, EnergyInterval, LedgerMutation, LedgerState, UsageSnapshot
 from .parser import summarize_usage
+from .provider import RequestBudget
 from .statistics import (
     StatisticsBatch,
     async_queue_external_statistics,
@@ -318,7 +319,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._retained_listener_unsub = self.async_add_listener(lambda: None)
         self._initialized = True
 
-    def _normal_delay(self, error: EntergyError) -> float:
+    def _normal_delay(self, error: EnergyUsageError) -> float:
         self._normal_failures += 1
         if error.retry_after is not None:
             delay = error.retry_after
@@ -327,7 +328,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._next_poll_seconds = delay
         return delay
 
-    def _raise_update(self, error: EntergyError, *, network_unhealthy: bool = True) -> None:
+    def _raise_update(self, error: EnergyUsageError, *, network_unhealthy: bool = True) -> None:
         self._condition = error.category.value
         if network_unhealthy:
             self._normal_network_healthy = False
@@ -559,7 +560,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             raise UpdateFailed(error.category.value) from None
         except RateLimitError as error:
             self._raise_update(error)
-        except EntergyError as error:
+        except EnergyUsageError as error:
             if error.category in (ErrorCategory.AUTH, ErrorCategory.CHALLENGE):
                 self._condition = error.category.value
                 self._normal_network_healthy = False
@@ -591,7 +592,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         except asyncio.CancelledError:
             raise
         except Exception:
-            self._raise_update(EntergyError(ErrorCategory.TRANSIENT), network_unhealthy=False)
+            self._raise_update(EnergyUsageError(ErrorCategory.TRANSIENT), network_unhealthy=False)
         raise AssertionError("unreachable")
 
     def _next_backfill_page(self, now: datetime) -> tuple[date, date, bool]:
@@ -604,7 +605,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         start = max(floor, cursor_date - timedelta(days=_PAGE_DAYS))
         return start, floor, start == floor
 
-    def _backfill_failure(self, error: EntergyError, *, condition: str | None = None) -> None:
+    def _backfill_failure(self, error: EnergyUsageError, *, condition: str | None = None) -> None:
         self._backfill_failures += 1
         delay = (
             error.retry_after
@@ -704,7 +705,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                         else "ledger_repair"
                     )
                     self._backfill_failure(
-                        EntergyError(ErrorCategory.PAYLOAD), condition=self._condition
+                        EnergyUsageError(ErrorCategory.PAYLOAD), condition=self._condition
                     )
                     return False
                 state_before = self._ledger.state
@@ -717,7 +718,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                         published = True
                 if not persisted:
                     self._backfill_failure(
-                        EntergyError(ErrorCategory.LEDGER), condition="ledger_repair"
+                        EnergyUsageError(ErrorCategory.LEDGER), condition="ledger_repair"
                     )
                     return False
                 if not published:
@@ -737,7 +738,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         except RateLimitError as error:
             self._backfill_failure(error)
             return False
-        except EntergyError as error:
+        except EnergyUsageError as error:
             if error.category in (ErrorCategory.AUTH, ErrorCategory.CHALLENGE):
                 self._condition = error.category.value
                 self._normal_network_healthy = False
@@ -749,15 +750,19 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             self._backfill_failure(error)
             return False
         except LedgerRepairError:
-            self._backfill_failure(EntergyError(ErrorCategory.LEDGER), condition="ledger_repair")
+            self._backfill_failure(
+                EnergyUsageError(ErrorCategory.LEDGER), condition="ledger_repair"
+            )
             return False
         except UpdateFailed:
-            self._backfill_failure(EntergyError(ErrorCategory.LEDGER), condition="ledger_repair")
+            self._backfill_failure(
+                EnergyUsageError(ErrorCategory.LEDGER), condition="ledger_repair"
+            )
             return False
         except asyncio.CancelledError:
             raise
         except Exception:
-            self._backfill_failure(EntergyError(ErrorCategory.TRANSIENT))
+            self._backfill_failure(EnergyUsageError(ErrorCategory.TRANSIENT))
             return False
 
     async def _async_backfill_worker(self) -> None:

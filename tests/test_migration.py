@@ -104,9 +104,7 @@ async def test_durable_checkpoint_recovers_id_after_entry_data_loss(
     )
     entry.add_to_hass(hass)
     original = dict(entry.data)
-    with patch(
-        "custom_components.energy_usage.EntergyLedger.async_load", side_effect=RuntimeError
-    ):
+    with patch("custom_components.energy_usage.EntergyLedger.async_load", side_effect=RuntimeError):
         assert not await integration.async_migrate_entry(hass, entry)
     checkpoint_key = f"energy_usage.migration_{entry.entry_id}"
     assert checkpoint_key in hass_storage

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
 from enum import Enum
@@ -16,7 +15,7 @@ from .const import API_ORIGIN, DEFAULT_APP_VERSION, DEFAULT_LANGUAGE
 from .errors import (
     AuthError,
     ChallengeError as ChallengeError,
-    EntergyError,
+    EnergyUsageError,
     ErrorCategory,
     PayloadError,
     PolicyError,
@@ -24,6 +23,7 @@ from .errors import (
 )
 from .models import Account, ClientMetadata, Credentials, EnergyInterval
 from .parser import parse_account, parse_accounts, parse_client_metadata, parse_login, parse_usage
+from .provider import RequestBudget
 
 _MAX_BODY_BYTES = 2 * 1024 * 1024
 _TIMEOUT = aiohttp.ClientTimeout(connect=10, sock_read=20, total=30)
@@ -41,29 +41,6 @@ class ApiOperation(Enum):
     ACCOUNTS = ("GET", "/api/accounts")
     ACCOUNT = ("GET", "/api/accounts/{account_id}")
     WEEKLY_USAGE = ("GET", "/api/accounts/{account_id}/weeklyusage")
-
-
-@dataclass(slots=True)
-class RequestBudget:
-    """Bound all nested calls in one request chain."""
-
-    limit: int = 12
-    used: int = 0
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.limit) is not int
-            or self.limit < 0
-            or type(self.used) is not int
-            or not 0 <= self.used <= min(self.limit, 12)
-        ):
-            raise PolicyError from None
-
-    def consume(self) -> None:
-        """Reserve one network attempt before touching the session."""
-        if self.used >= min(self.limit, 12):
-            raise PolicyError from None
-        self.used += 1
 
 
 class EntergyApiClient:
@@ -240,7 +217,7 @@ class EntergyApiClient:
                         status, _retry_after(response.headers.get("Retry-After"))
                     ) from None
                 if status >= 400:
-                    raise EntergyError(ErrorCategory.TRANSIENT, status) from None
+                    raise EnergyUsageError(ErrorCategory.TRANSIENT, status) from None
                 media_type = (
                     response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
                 )
@@ -254,7 +231,7 @@ class EntergyApiClient:
                         raise PayloadError from None
                     body.extend(chunk)
         except TimeoutError, aiohttp.ClientError, OSError, ValueError:
-            raise EntergyError(ErrorCategory.TRANSIENT) from None
+            raise EnergyUsageError(ErrorCategory.TRANSIENT) from None
         try:
             return json.loads(body)
         except UnicodeDecodeError, json.JSONDecodeError, ValueError:
@@ -284,7 +261,7 @@ class EntergyApiClient:
         try:
             if self._client_id is not None:
                 await self._request_json(ApiOperation.LOGOUT, budget)
-        except EntergyError:
+        except EnergyUsageError:
             pass
         finally:
             self.clear_token()
@@ -337,7 +314,7 @@ def _parse_reviewed[T](parser: Callable[[], T]) -> T:
     """Keep unanticipated data-derived parser failures value-free at the API edge."""
     try:
         return parser()
-    except EntergyError:
+    except EnergyUsageError:
         raise
     except Exception:
         raise PayloadError from None

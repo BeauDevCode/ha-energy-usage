@@ -22,7 +22,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.util import slugify
 
-from .api import EntergyApiClient, RequestBudget
+from .api import EntergyApiClient
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_LANGUAGE,
@@ -39,6 +39,7 @@ from .ledger import (
     async_import_legacy_v1_store,
 )
 from .models import Credentials, LedgerMutation
+from .provider import RequestBudget
 from .statistics import statistic_ids
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]

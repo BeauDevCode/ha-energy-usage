@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import EntergyApiClient, RequestBudget
+from .api import EntergyApiClient
 from .const import (
     CONF_ACCOUNT_ID,
     CONF_LANGUAGE,
@@ -31,8 +31,9 @@ from .const import (
     MAX_SCAN_INTERVAL_SECONDS,
     MIN_SCAN_INTERVAL_SECONDS,
 )
-from .errors import AuthError, ChallengeError, EntergyError
+from .errors import AuthError, ChallengeError, EnergyUsageError
 from .models import Account, Credentials
+from .provider import RequestBudget
 from .statistics import statistic_ids
 
 
@@ -109,7 +110,7 @@ class EntergyMobileConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unsupported_challenge"
             except AuthError:
                 errors["base"] = "invalid_auth"
-            except EntergyError, ClientError:
+            except EnergyUsageError, ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:
                 # Never log exception strings or untrusted payload details.

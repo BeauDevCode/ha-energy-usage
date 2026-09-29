@@ -7,7 +7,7 @@ from decimal import Decimal, localcontext
 import pytest
 from custom_components.energy_usage.errors import (
     AuthError,
-    EntergyError,
+    EnergyUsageError,
     ErrorCategory,
     PayloadError,
 )
@@ -17,6 +17,8 @@ from custom_components.energy_usage.models import (
     Credentials,
     EnergyInterval,
     LoginResult,
+    ProviderCapabilities,
+    ProviderLocation,
 )
 
 
@@ -137,7 +139,7 @@ def test_fingerprint_keeps_finite_digits_independent_of_decimal_context() -> Non
 
 def test_errors_never_echo_sensitive_values() -> None:
     for error in (
-        EntergyError(ErrorCategory.PAYLOAD, status=400),
+        EnergyUsageError(ErrorCategory.PAYLOAD, status=400),
         AuthError(status=401),
         PayloadError(),
     ):
@@ -145,3 +147,74 @@ def test_errors_never_echo_sensitive_values() -> None:
         assert "token" not in repr(error).lower()
         assert "0001234567" not in repr(error)
     assert AuthError(status=401).category is ErrorCategory.AUTH
+
+
+def test_provider_location_is_masked_and_timezone_validated() -> None:
+    location = ProviderLocation(
+        private_id="private-account-1234",
+        masked_label="Account ••••1234",
+        time_zone="America/Chicago",
+    )
+    assert location.display_name == "Account ••••1234"
+    assert "private-account-1234" not in repr(location)
+
+
+@pytest.mark.parametrize(
+    ("private_id", "masked_label", "time_zone"),
+    [
+        ("", "Account ••••1234", "America/Chicago"),
+        ("private-account-1234", "private-account-1234", "America/Chicago"),
+        ("private-account-1234", "Account\n1234", "America/Chicago"),
+        ("private-account-1234", "Account ••••1234", "Not/AZone"),
+    ],
+)
+def test_provider_location_rejects_private_or_invalid_labels(
+    private_id: str, masked_label: str, time_zone: str | None
+) -> None:
+    with pytest.raises(ValueError):
+        ProviderLocation(private_id, masked_label, time_zone)
+
+
+def test_provider_capabilities_are_explicit_and_consistent() -> None:
+    capabilities = ProviderCapabilities(
+        supports_import=True,
+        supports_return=True,
+        supports_cost=True,
+        supports_compensation=True,
+        currency="USD",
+        interval_duration=timedelta(hours=1),
+        publication_delay=timedelta(hours=6),
+        historical_range=timedelta(days=370),
+        minimum_poll_interval=timedelta(hours=1),
+    )
+    assert capabilities.currency == "USD"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"supports_import": False},
+        {"supports_return": False, "supports_compensation": True},
+        {"supports_cost": True, "currency": None},
+        {"supports_cost": False, "supports_compensation": False, "currency": "USD"},
+        {"interval_duration": timedelta(0)},
+        {"publication_delay": timedelta(seconds=-1)},
+        {"historical_range": timedelta(0)},
+        {"minimum_poll_interval": timedelta(minutes=59)},
+    ],
+)
+def test_provider_capabilities_reject_contradictions(changes: dict[str, object]) -> None:
+    values: dict[str, object] = {
+        "supports_import": True,
+        "supports_return": True,
+        "supports_cost": False,
+        "supports_compensation": False,
+        "currency": None,
+        "interval_duration": timedelta(hours=1),
+        "publication_delay": timedelta(hours=6),
+        "historical_range": timedelta(days=370),
+        "minimum_poll_interval": timedelta(hours=1),
+    }
+    values.update(changes)
+    with pytest.raises(ValueError):
+        ProviderCapabilities(**values)  # type: ignore[arg-type]

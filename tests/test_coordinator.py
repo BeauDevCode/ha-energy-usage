@@ -14,7 +14,7 @@ from custom_components.energy_usage import coordinator as module
 from custom_components.energy_usage.errors import (
     AuthError,
     ChallengeError,
-    EntergyError,
+    EnergyUsageError,
     ErrorCategory,
     PayloadError,
     RateLimitError,
@@ -387,7 +387,7 @@ async def test_page_failure_is_atomic_and_keeps_prior_snapshot(
 ) -> None:
     original = interval(NOW - timedelta(days=2), energy="3")
     ledger = FakeLedger(LedgerState(schema_version=2, intervals=(original,)))
-    client = FakeClient((interval(),), failures=[None, EntergyError(ErrorCategory.TRANSIENT)])
+    client = FakeClient((interval(),), failures=[None, EnergyUsageError(ErrorCategory.TRANSIENT)])
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     before = subject.data
@@ -701,7 +701,7 @@ async def test_first_transient_becomes_config_entry_not_ready(
     config_entry = entry(hass, state=ConfigEntryState.SETUP_IN_PROGRESS)
     subject = coordinator(
         hass,
-        FakeClient(failure=EntergyError(ErrorCategory.TRANSIENT)),
+        FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT)),
         FakeLedger(),
         config_entry=config_entry,
     )
@@ -713,7 +713,7 @@ async def test_first_transient_becomes_config_entry_not_ready(
 async def test_transient_backoff_retry_after_and_success_jitter(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient(failure=EntergyError(ErrorCategory.TRANSIENT))
+    client = FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
     subject = coordinator(hass, client, FakeLedger(), jitter=lambda: 1)
     await subject.async_initialize()
     for expected in (3600, 7200, 14_400, 28_800, 86_400, 86_400):
@@ -729,7 +729,7 @@ async def test_transient_backoff_retry_after_and_success_jitter(
     client.failure = None
     await subject._async_update_data()
     assert subject.update_interval == timedelta(seconds=15_840)
-    client.failure = EntergyError(ErrorCategory.TRANSIENT)
+    client.failure = EnergyUsageError(ErrorCategory.TRANSIENT)
     with pytest.raises(UpdateFailed) as caught:
         await subject._async_update_data()
     assert caught.value.retry_after == 3600
@@ -1182,7 +1182,7 @@ async def test_backfill_stall_tracks_normal_network_health(
     assert "backfill_stalled" in subject.diagnostics()["repair_conditions"]
     assert notifications == 1
 
-    client.failure = EntergyError(ErrorCategory.TRANSIENT)
+    client.failure = EnergyUsageError(ErrorCategory.TRANSIENT)
     with pytest.raises(UpdateFailed):
         await subject._async_update_data()
     await asyncio.sleep(0)
@@ -1246,7 +1246,7 @@ async def test_non_backoff_outcome_restores_normal_next_poll_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
     outcome: str,
 ) -> None:
-    client = FakeClient(failure=EntergyError(ErrorCategory.TRANSIENT))
+    client = FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
     ledger = FakeLedger()
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()

@@ -17,7 +17,7 @@ class ErrorCategory(StrEnum):
     TRANSIENT = "transient"
 
 
-class EntergyError(Exception):
+class EnergyUsageError(Exception):
     """An error with no response body or user-provided value in its text."""
 
     def __init__(
@@ -35,43 +35,50 @@ class EntergyError(Exception):
         return f"{type(self).__name__}(category={self.category.value!r})"
 
 
-class AuthError(EntergyError):
+class AuthError(EnergyUsageError):
     """Authentication is missing or expired."""
 
     def __init__(self, status: int | None = None) -> None:
         super().__init__(ErrorCategory.AUTH, status)
 
 
-class ChallengeError(EntergyError):
+class ChallengeError(EnergyUsageError):
     """An unsupported interactive challenge was requested."""
 
     def __init__(self, status: int | None = None) -> None:
         super().__init__(ErrorCategory.CHALLENGE, status)
 
 
-class RateLimitError(EntergyError):
+class RateLimitError(EnergyUsageError):
     """The utility requested a delay before retrying."""
 
     def __init__(self, status: int | None = None, retry_after: float | None = None) -> None:
         super().__init__(ErrorCategory.RATE_LIMIT, status, retry_after)
 
 
-class PayloadError(EntergyError):
+class PayloadError(EnergyUsageError):
     """A response failed the reviewed schema or safety limits."""
 
     def __init__(self) -> None:
         super().__init__(ErrorCategory.PAYLOAD)
 
 
-class PolicyError(EntergyError):
+class PolicyError(EnergyUsageError):
     """A configured or remote operation violated integration policy."""
 
     def __init__(self) -> None:
         super().__init__(ErrorCategory.POLICY)
 
 
-class LedgerError(EntergyError):
+class LedgerError(EnergyUsageError):
     """Persisted ledger data failed validation."""
 
     def __init__(self) -> None:
         super().__init__(ErrorCategory.LEDGER)
+
+
+class UnknownProviderError(EnergyUsageError):
+    """A provider key is not in the reviewed registry."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCategory.POLICY)

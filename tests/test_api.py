@@ -19,7 +19,7 @@ from custom_components.energy_usage import api
 from custom_components.energy_usage.const import API_ORIGIN
 from custom_components.energy_usage.errors import (
     AuthError,
-    EntergyError,
+    EnergyUsageError,
     ErrorCategory,
     PayloadError,
     PolicyError,
@@ -312,7 +312,7 @@ async def test_reviewed_account_timezone_precedes_configured_fallback(
 
 async def test_timeout_converts_to_sanitized_transient_error(caplog: Any) -> None:
     session = FakeSession(TimeoutError("secret-timeout-987654"))
-    with pytest.raises(EntergyError) as caught:
+    with pytest.raises(EnergyUsageError) as caught:
         await authenticated(session).async_get_accounts(api.RequestBudget())
     assert caught.value.category == ErrorCategory.TRANSIENT
     assert caught.value.__cause__ is None
@@ -387,7 +387,7 @@ async def test_remote_token_with_control_character_never_reaches_request_headers
 
 async def test_session_value_error_is_sanitized(caplog: Any) -> None:
     session = FakeSession(ValueError("secret-header-987654"))
-    with pytest.raises(EntergyError) as caught:
+    with pytest.raises(EnergyUsageError) as caught:
         await authenticated(session).async_get_accounts(api.RequestBudget())
     assert caught.value.category == ErrorCategory.TRANSIENT
     assert "secret-header" not in str(caught.value) + repr(caught.value) + caplog.text
@@ -531,11 +531,11 @@ async def test_login_uses_reviewed_metadata_and_token_schemas(nested: bool) -> N
         (FakeResponse({}), PayloadError),
         (FakeResponse({"token": 123}), PayloadError),
         (FakeResponse({"token": "secret\nforged"}), PayloadError),
-        (TimeoutError("secret"), EntergyError),
+        (TimeoutError("secret"), EnergyUsageError),
     ],
 )
 async def test_login_failure_clears_old_token_without_retry(
-    response: FakeResponse | Exception, error: type[EntergyError]
+    response: FakeResponse | Exception, error: type[EnergyUsageError]
 ) -> None:
     session = FakeSession(response)
     subject = authenticated(session)
@@ -787,7 +787,7 @@ async def test_usage_rejects_datetime_start_date_before_network() -> None:
 
 async def test_server_error_is_transient_and_value_free() -> None:
     subject = authenticated(FakeSession(FakeResponse({"private": "canary"}, status=503)))
-    with pytest.raises(EntergyError) as error:
+    with pytest.raises(EnergyUsageError) as error:
         await subject.async_get_accounts(api.RequestBudget())
     assert error.value.category is ErrorCategory.TRANSIENT
     assert error.value.status == 503

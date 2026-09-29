@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -9,6 +10,10 @@ from decimal import MAX_EMAX, MIN_EMIN, Context, Decimal, localcontext
 from enum import StrEnum
 from hashlib import sha256
 from math import isfinite
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_PROVIDER_KEY = re.compile(r"[a-z0-9_]{1,32}\Z", re.ASCII)
 
 
 def validate_decimal(value: Decimal, *, derived: bool = False) -> None:
@@ -98,6 +103,95 @@ class Account:
         suffix = self.account_id[-4:]
         label = f"••••{suffix}"
         return f"{label} ({self.nickname})" if self.nickname else label
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCapabilities:
+    """Measurements and timing behavior explicitly supported by a provider."""
+
+    supports_import: bool
+    supports_return: bool
+    supports_cost: bool
+    supports_compensation: bool
+    currency: str | None
+    interval_duration: timedelta
+    publication_delay: timedelta
+    historical_range: timedelta
+    minimum_poll_interval: timedelta
+
+    def __post_init__(self) -> None:
+        flags = (
+            self.supports_import,
+            self.supports_return,
+            self.supports_cost,
+            self.supports_compensation,
+        )
+        money = self.supports_cost or self.supports_compensation
+        if (
+            any(type(flag) is not bool for flag in flags)
+            or not self.supports_import
+            or (self.supports_compensation and not self.supports_return)
+            or (money and (self.currency is None or not re.fullmatch(r"[A-Z]{3}", self.currency)))
+            or (not money and self.currency is not None)
+            or self.interval_duration <= timedelta(0)
+            or self.interval_duration > timedelta(days=1)
+            or self.publication_delay < timedelta(0)
+            or self.historical_range <= timedelta(0)
+            or self.minimum_poll_interval < timedelta(hours=1)
+        ):
+            raise ValueError("invalid provider capabilities")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ProviderLocation:
+    """A private provider location with a safe masked display label."""
+
+    private_id: str
+    masked_label: str
+    time_zone: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.private_id, str)
+            or not 1 <= len(self.private_id) <= 128
+            or _CONTROL.search(self.private_id)
+            or not isinstance(self.masked_label, str)
+            or not 1 <= len(self.masked_label) <= 64
+            or _CONTROL.search(self.masked_label)
+            or self.private_id in self.masked_label
+        ):
+            raise ValueError("invalid provider location")
+        if self.time_zone is not None:
+            try:
+                ZoneInfo(self.time_zone)
+            except TypeError, ValueError, ZoneInfoNotFoundError:
+                raise ValueError("invalid provider location") from None
+
+    @property
+    def display_name(self) -> str:
+        """Return only the already-masked provider label."""
+        return self.masked_label
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderDescriptor:
+    """Public, non-secret metadata for a released provider adapter."""
+
+    key: str
+    name: str
+    country_codes: frozenset[str]
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.key, str)
+            or _PROVIDER_KEY.fullmatch(self.key) is None
+            or not isinstance(self.name, str)
+            or not 1 <= len(self.name) <= 40
+            or _CONTROL.search(self.name)
+            or not self.country_codes
+            or any(re.fullmatch(r"[A-Z]{2}", code) is None for code in self.country_codes)
+        ):
+            raise ValueError("invalid provider descriptor")
 
 
 @dataclass(frozen=True, slots=True, repr=False)

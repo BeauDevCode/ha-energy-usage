@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from custom_components import energy_usage as integration
 from custom_components.energy_usage.const import DOMAIN
-from custom_components.energy_usage.errors import EntergyError, ErrorCategory, PayloadError
+from custom_components.energy_usage.errors import EnergyUsageError, ErrorCategory, PayloadError
 from custom_components.energy_usage.issues import RepairKind
 from custom_components.energy_usage.ledger import LedgerRepairError, LedgerRepairKind
 from custom_components.energy_usage.models import Freshness, LedgerState, UsageSnapshot
@@ -395,7 +395,7 @@ async def test_real_coordinator_transient_startup_preserves_prior_repairs(
     client, ledger, _ = fakes()
     ledger.async_load = AsyncMock(return_value=ledger.state)
     client.async_get_account = AsyncMock()
-    client.async_get_weekly_usage = AsyncMock(side_effect=EntergyError(ErrorCategory.TRANSIENT))
+    client.async_get_weekly_usage = AsyncMock(side_effect=EnergyUsageError(ErrorCategory.TRANSIENT))
     create_issue(hass, PUBLIC_ID, kind)
     with (
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
