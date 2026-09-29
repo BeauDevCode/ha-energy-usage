@@ -194,8 +194,8 @@ async def test_real_sensor_platform_state_registry_and_coordinator_availability(
     item = common.MockConfigEntry(
         domain=DOMAIN,
         unique_id=PUBLIC_ID,
-        version=2,
-        minor_version=1,
+        version=1,
+        minor_version=0,
         data={
             "username": "private-user",
             "password": "private-password",

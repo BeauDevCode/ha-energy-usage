@@ -54,8 +54,8 @@ def entry(hass: HomeAssistant, *, initialized: bool = False) -> Any:
     item = common.MockConfigEntry(
         domain=DOMAIN,
         unique_id=PUBLIC_ID,
-        version=2,
-        minor_version=1,
+        version=1,
+        minor_version=0,
         data={
             "username": "private-user-canary",
             "password": "private-password-canary",

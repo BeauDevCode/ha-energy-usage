@@ -1,9 +1,16 @@
 {
-  "title": "Entergy",
+  "title": "Energy Usage",
   "config": {
     "step": {
       "user": {
-        "title": "Entergy Login",
+        "title": "Choose energy provider",
+        "description": "Select the United States utility provider for this one service location.",
+        "data": {
+          "provider_key": "Energy provider"
+        }
+      },
+      "auth": {
+        "title": "Provider login",
         "description": "Your username and password are stored in Home Assistant configuration to reconnect after a restart. Enter them only through your trusted local Home Assistant connection.",
         "data": {
           "username": "Username",
@@ -11,16 +18,16 @@
           "language": "Language"
         }
       },
-      "account": {
-        "title": "Select Entergy Account",
-        "description": "Choose the account to monitor.",
+      "location": {
+        "title": "Choose one service location",
+        "description": "Select the single energy service location to monitor.",
         "data": {
-          "account_id": "Account"
+          "location": "Service location"
         }
       },
       "reauth_confirm": {
         "title": "Sign in again",
-        "description": "Your username and password are stored in Home Assistant configuration to reconnect after a restart. Enter them only through your trusted local Home Assistant connection. Sign in to the same Entergy account.",
+        "description": "Your username and password are stored in Home Assistant configuration to reconnect after a restart. Sign in to the same provider account and location.",
         "data": {
           "username": "Username",
           "password": "Password",
@@ -29,33 +36,35 @@
       },
       "time_zone": {
         "title": "Select service timezone",
-        "description": "Entergy did not provide a timezone for this account. Choose the IANA timezone used for local usage dates and summaries.",
+        "description": "The provider did not supply a timezone. Choose the IANA timezone used for local usage dates and summaries.",
         "data": {
           "time_zone": "Service timezone"
         }
       }
     },
     "error": {
-      "cannot_connect": "Unable to connect to Entergy.",
+      "cannot_connect": "Unable to connect to the energy provider.",
       "invalid_auth": "Invalid username or password.",
-      "mfa_required": "Entergy requested an additional login step that this integration does not support yet.",
-      "no_accounts": "Login worked, but no accounts were returned.",
-      "unknown": "Unexpected error.",
-      "unsupported_challenge": "Entergy requires an interactive login step that this integration cannot complete. Keep your account security enabled.",
-      "invalid_time_zone": "Select a valid IANA timezone."
+      "unsupported_challenge": "The provider requires an interactive login step that this integration cannot complete. Keep account security enabled.",
+      "no_locations": "Login worked, but no service locations were returned.",
+      "invalid_location": "The provider returned an invalid or unsupported service location.",
+      "invalid_time_zone": "Select a valid IANA timezone.",
+      "unknown": "Unexpected error."
     },
     "abort": {
-      "already_configured": "This account is already configured.",
-      "unique_id_mismatch": "The authenticated account does not match this entry.",
+      "unsupported_provider": "This energy provider is not available in this release.",
+      "invalid_location": "Select a service location returned by this sign-in.",
+      "location_mismatch": "The new sign-in does not expose the configured service location.",
+      "unique_id_mismatch": "The configured Energy Usage identity changed unexpectedly.",
       "reauth_successful": "Credentials updated successfully.",
-      "invalid_account": "Select an account returned by this sign-in."
+      "single_instance_allowed": "Energy Usage currently supports one service location."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Entergy Options",
-        "description": "Control how often Entergy usage data is pulled.",
+        "title": "Energy Usage options",
+        "description": "Control how often verified utility usage data is pulled.",
         "data": {
           "scan_interval_seconds": "Data update interval in seconds"
         }

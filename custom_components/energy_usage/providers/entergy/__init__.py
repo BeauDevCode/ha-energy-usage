@@ -10,6 +10,7 @@ from typing import Any
 import voluptuous as vol
 from aiohttp import ClientSession
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.helpers import selector
 
 from ...errors import PolicyError
 from ...models import (
@@ -50,8 +51,17 @@ def _auth_schema() -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_USERNAME): str,
-            vol.Required(CONF_PASSWORD): str,
-            vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): vol.In(("en", "es")),
+            vol.Required(CONF_PASSWORD): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.PASSWORD,
+                    autocomplete="current-password",
+                )
+            ),
+            vol.Optional(CONF_LANGUAGE, default=DEFAULT_LANGUAGE): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["en", "es"], mode=selector.SelectSelectorMode.DROPDOWN
+                )
+            ),
         }
     )
 

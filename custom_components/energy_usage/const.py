@@ -6,6 +6,14 @@ from typing import Final
 
 DOMAIN: Final = "energy_usage"
 
+# Provider-neutral config entry fields.
+CONF_PROVIDER_KEY: Final = "provider_key"
+CONF_AUTH: Final = "auth"
+CONF_PRIVATE_LOCATION_ID: Final = "private_location_id"
+CONF_LOCATION_PUBLIC_ID: Final = "location_public_id"
+PROVIDER_SCHEMA_VERSION: Final = 1
+
+# Temporary legacy field names used until lifecycle generalization is complete.
 CONF_ACCOUNT_ID: Final = "account_id"
 CONF_LANGUAGE: Final = "language"
 CONF_SCAN_INTERVAL_SECONDS: Final = "scan_interval_seconds"
