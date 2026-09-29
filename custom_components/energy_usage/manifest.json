@@ -1,0 +1,22 @@
+{
+  "domain": "energy_usage",
+  "name": "Energy Usage",
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@BeauDevCode"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/BeauDevCode/ha-energy-usage",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/BeauDevCode/ha-energy-usage/issues",
+  "loggers": [
+    "custom_components.energy_usage"
+  ],
+  "requirements": [],
+  "version": "0.1.0-rc.1",
+  "single_config_entry": true
+}
