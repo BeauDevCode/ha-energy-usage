@@ -15,8 +15,6 @@ import aiohttp
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
-from custom_components.energy_usage import api
-from custom_components.energy_usage.const import API_ORIGIN
 from custom_components.energy_usage.errors import (
     AuthError,
     EnergyUsageError,
@@ -26,6 +24,8 @@ from custom_components.energy_usage.errors import (
     RateLimitError,
 )
 from custom_components.energy_usage.models import Credentials
+from custom_components.energy_usage.providers.entergy import api
+from custom_components.energy_usage.providers.entergy.const import API_ORIGIN
 from yarl import URL
 
 

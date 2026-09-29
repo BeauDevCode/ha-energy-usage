@@ -60,3 +60,10 @@ def test_factory_schema_and_creation_are_selected_by_key() -> None:
     assert set(provider.provider_auth_schema("entergy").schema) == {"username"}
     session = cast(aiohttp.ClientSession, object())
     assert provider.create_provider("entergy", session, {"username": "private"}) is not None
+
+
+def test_provider_bootstrap_registers_released_entergy_adapter() -> None:
+    from custom_components.energy_usage import providers
+
+    providers.register_all()
+    assert [item.key for item in provider.provider_descriptors()] == ["entergy"]

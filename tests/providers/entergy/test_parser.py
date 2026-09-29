@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from custom_components.energy_usage.errors import ChallengeError, PayloadError
 from custom_components.energy_usage.models import EnergyInterval, Freshness, LedgerState
-from custom_components.energy_usage.parser import (
+from custom_components.energy_usage.providers.entergy.parser import (
     parse_account,
     parse_accounts,
     parse_client_metadata,
@@ -18,7 +18,7 @@ from custom_components.energy_usage.parser import (
     summarize_usage,
 )
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parents[2] / "fixtures"
 RECEIVED = datetime(2026, 9, 28, tzinfo=UTC)
 
 

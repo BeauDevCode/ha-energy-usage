@@ -40,9 +40,12 @@ from .ledger import (
 )
 from .models import Credentials, LedgerMutation
 from .provider import RequestBudget
+from .providers import register_all
 from .statistics import statistic_ids
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
+
+register_all()
 
 
 @dataclass(slots=True)
