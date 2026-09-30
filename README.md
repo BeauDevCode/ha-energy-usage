@@ -2,7 +2,7 @@
 
 ![Energy Usage icon](assets/energy-usage-icon.svg)
 
-Energy Usage is an independent Home Assistant integration that imports delayed utility energy intervals through reviewed provider adapters. Release `0.1.0-rc.2` supports one provider account and one service location. Entergy is the only available provider in this first release.
+Energy Usage is an independent Home Assistant integration that imports delayed utility energy intervals through reviewed provider adapters. Release `0.1.0-rc.3` supports one provider account and one service location. Entergy is the only available provider in this first release.
 
 Energy Usage is unofficial and is not affiliated with, endorsed by, or supported by any utility. Utility readings can arrive hours or days late. They are not live, real-time, revenue-grade, or bill-grade. Use the newest-interval and last-successful-fetch sensors to judge freshness.
 

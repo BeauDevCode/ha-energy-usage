@@ -2,7 +2,7 @@
 
 Energy Usage separates its Home Assistant entities, ledger, statistics, and diagnostics from utility-specific authentication and response parsing. Each provider adapter must declare its measurements, currency, interval duration, publication delay, historical range, and minimum polling interval. Unsupported measurements stay absent rather than appearing as zero.
 
-## Available in 0.1.0-rc.2
+## Available in 0.1.0-rc.3
 
 | Provider | Country | Locations | Measurements | Status |
 | --- | --- | --- | --- | --- |

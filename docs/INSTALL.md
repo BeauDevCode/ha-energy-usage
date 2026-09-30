@@ -1,6 +1,6 @@
 # Installation and updates
 
-**Release procedure only:** Install `0.1.0-rc.2` only after its exact published release archive, SHA-256 checksum, and GitHub artifact attestation have passed review. Never install a moving branch on a production system.
+**Release procedure only:** Install `0.1.0-rc.3` only after its exact published release archive, SHA-256 checksum, and GitHub artifact attestation have passed review. Never install a moving branch on a production system.
 
 Energy Usage supports Home Assistant 2026.9.3 and 2026.9.4 on Python 3.14. Version 1 supports one provider account and one service location. Before installation, verify that no installed integration already owns the `energy_usage` domain. Create a protected supported Home Assistant backup with the database included, record the release tag and commit, and keep the prior component tree for rollback.
 
@@ -12,7 +12,7 @@ After publication, add `https://github.com/BeauDevCode/ha-energy-usage` as a cus
 
 ## Manual archive
 
-Download `ha-energy-usage-0.1.0-rc.2.zip` and its `.sha256` file from the same reviewed GitHub release. Verify the checksum with `sha256sum --check ha-energy-usage-0.1.0-rc.2.zip.sha256` or a trusted equivalent, then verify the artifact attestation against `BeauDevCode/ha-energy-usage`. Inspect the archive before extraction: its only top-level tree must be `custom_components/energy_usage/`.
+Download `ha-energy-usage-0.1.0-rc.3.zip` and its `.sha256` file from the same reviewed GitHub release. Verify the checksum with `sha256sum --check ha-energy-usage-0.1.0-rc.3.zip.sha256` or a trusted equivalent, then verify the artifact attestation against `BeauDevCode/ha-energy-usage`. Inspect the archive before extraction: its only top-level tree must be `custom_components/energy_usage/`.
 
 Extract under the Home Assistant config directory so the final path is `/config/custom_components/energy_usage/`. Preserve the existing Home Assistant file ownership convention. Run `ha core check`; if it fails, restore only the staged component tree and stop. If it passes, schedule one planned restart.
 
