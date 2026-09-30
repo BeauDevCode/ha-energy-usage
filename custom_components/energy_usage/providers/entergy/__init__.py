@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
@@ -36,16 +35,15 @@ ENTERGY_DESCRIPTOR = ProviderDescriptor(
 )
 ENTERGY_CAPABILITIES = ProviderCapabilities(
     supports_import=True,
-    supports_return=True,
+    supports_return=False,
     supports_cost=True,
-    supports_compensation=True,
+    supports_compensation=False,
     currency="USD",
     interval_duration=timedelta(hours=1),
     publication_delay=timedelta(hours=6),
     historical_range=timedelta(days=370),
     minimum_poll_interval=timedelta(hours=1),
 )
-_SAFE_NICKNAME = re.compile(r"[^\d\r\n\v\f\x85\u2028\u2029,@]{1,40}\Z")
 
 
 def _auth_schema() -> vol.Schema:
@@ -69,9 +67,6 @@ def _auth_schema() -> vol.Schema:
 
 def _location(account: Account) -> ProviderLocation:
     label = f"Account ••••{account.account_id[-4:]}"
-    nickname = (account.nickname or "").strip()
-    if _SAFE_NICKNAME.fullmatch(nickname):
-        label += f" ({nickname})"
     return ProviderLocation(account.account_id, label, account.time_zone)
 
 

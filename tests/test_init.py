@@ -267,6 +267,7 @@ async def test_initialization_marker_deferral_never_starts_backfill(
     ("condition", "kind"),
     [
         ("schema_drift", RepairKind.SCHEMA_DRIFT),
+        ("timezone_mismatch", RepairKind.TIMEZONE_MISMATCH),
         ("data_retraction", RepairKind.DATA_RETRACTION),
     ],
 )
@@ -371,6 +372,7 @@ async def test_verified_local_load_resolves_only_local_ledger_repairs(
     ("condition", "kind"),
     [
         ("schema_drift", RepairKind.SCHEMA_DRIFT),
+        ("timezone_mismatch", RepairKind.TIMEZONE_MISMATCH),
         ("data_retraction", RepairKind.DATA_RETRACTION),
     ],
 )
@@ -398,6 +400,7 @@ async def test_unverified_first_payload_keeps_specific_repair_classification(
     [
         RepairKind.SCHEMA_DRIFT,
         RepairKind.CURRENCY_MISMATCH,
+        RepairKind.TIMEZONE_MISMATCH,
         RepairKind.DATA_RETRACTION,
     ],
 )

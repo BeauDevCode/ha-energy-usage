@@ -34,9 +34,9 @@ def test_descriptor_and_capabilities_are_explicit() -> None:
     assert ENTERGY_DESCRIPTOR.country_codes == frozenset({"US"})
     capabilities = adapter().capabilities
     assert capabilities.supports_import
-    assert capabilities.supports_return
+    assert not capabilities.supports_return
     assert capabilities.supports_cost
-    assert capabilities.supports_compensation
+    assert not capabilities.supports_compensation
     assert capabilities.currency == "USD"
     assert capabilities.minimum_poll_interval == timedelta(hours=1)
 
@@ -59,13 +59,23 @@ async def test_locations_are_masked_and_confirmed() -> None:
     )
     locations = await result.async_list_locations(RequestBudget())
     assert [item.display_name for item in locations] == [
-        "Account ••••4567 (Home)",
+        "Account ••••4567",
         "Account ••••6543",
     ]
     assert all(isinstance(item, ProviderLocation) for item in locations)
     result._client.async_get_account.return_value = Account("0001234567", "Home", "America/Chicago")
     confirmed = await result.async_confirm_location("0001234567", RequestBudget())
-    assert confirmed.display_name == "Account ••••4567 (Home)"
+    assert confirmed.display_name == "Account ••••4567"
+
+
+async def test_provider_nickname_never_enters_public_location_label() -> None:
+    result = adapter()
+    result._client.async_get_accounts.return_value = (
+        Account("0001234567", "Alice Smith Main Street", "America/Chicago"),
+    )
+    assert (await result.async_list_locations(RequestBudget()))[
+        0
+    ].display_name == "Account ••••4567"
 
 
 async def test_fetch_maps_weekly_usage_to_complete_interval_page() -> None:

@@ -229,13 +229,9 @@ def test_invalid_currency_suppresses_money_but_preserves_energy(
     assert batches[0][1] == ({"start": NEXT, "state": 4.0, "sum": 8.0},)
 
 
-def test_omitted_currency_and_negative_amount_produce_nonnegative_compensation() -> None:
-    batches = dict(
-        (meta["statistic_id"], rows)
-        for meta, rows in build(LedgerState(intervals=(interval(amount="-2.5", currency=None),)))
-    )
-    assert batches[IDS.compensation] == ({"start": HOUR, "state": 2.5, "sum": 2.5},)
-    assert batches[IDS.cost] == ({"start": HOUR, "state": 0.0, "sum": 0.0},)
+def test_omitted_currency_suppresses_all_money_statistics() -> None:
+    batches = build(LedgerState(intervals=(interval(amount="2.5", currency=None),)))
+    assert [meta["statistic_id"] for meta, _ in batches] == [IDS.consumption, IDS.return_]
 
 
 def test_absent_amounts_leave_optional_batches_empty() -> None:
@@ -485,7 +481,7 @@ async def test_empty_queue_has_no_commit_claim_or_boundary(hass: HomeAssistant) 
 
 @pytest.mark.parametrize(
     "currency,cost,compensation",
-    [("USD", 8, 2), (None, 8, 2), ("EUR", 1, 0)],
+    [("USD", 8, 2), (None, 1, 0), ("EUR", 1, 0)],
 )
 def test_pruned_non_usd_amounts_never_reappear_as_usd_statistics(
     currency: str | None,
@@ -502,7 +498,7 @@ def test_pruned_non_usd_amounts_never_reappear_as_usd_statistics(
         )
     )
     before = build(state)
-    assert len(before) == (2 if currency == "EUR" else 4)
+    assert len(before) == (4 if currency == "USD" else 2)
     pruned = reconcile(state, (), received_at=now, currency="USD").state
     assert len(pruned.intervals) == 1
     batches = {meta["statistic_id"]: rows for meta, rows in build(pruned)}

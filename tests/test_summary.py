@@ -43,6 +43,15 @@ def test_empty_and_absent_money_remain_unknown() -> None:
     assert no_amount.latest_cost is None
     assert no_amount.latest_compensation is None
 
+    missing_currency = summarize_usage(
+        LedgerState(intervals=(interval(amount=Decimal("2.5"), currency=None),)),
+        time_zone="UTC",
+        now=HOUR + timedelta(hours=2),
+        currency="USD",
+    )
+    assert missing_currency.latest_cost is None
+    assert missing_currency.latest_compensation is None
+
 
 @pytest.mark.parametrize(
     ("time_zone", "now"),

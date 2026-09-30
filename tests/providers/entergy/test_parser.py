@@ -81,17 +81,22 @@ def test_account_aliases_masking_and_expected_identity() -> None:
     )
 
 
-def test_usage_sign_decimal_conversion_and_hour_identity() -> None:
+def test_usage_never_infers_return_compensation_or_currency_from_signed_values() -> None:
     intervals = parse(fixture("weekly_usage.json"))
-    assert len(intervals) == 2
+    assert len(intervals) == 1
     assert intervals[0].start == datetime(2026, 9, 27, 10, tzinfo=UTC)
     assert intervals[0].end == datetime(2026, 9, 27, 11, tzinfo=UTC)
     assert intervals[0].import_kwh == Decimal("1.25")
     assert intervals[0].return_kwh == 0
-    assert intervals[1].import_kwh == 0
-    assert intervals[1].return_kwh == Decimal("0.5")
-    assert intervals[1].amount == Decimal("-0.03")
-    assert intervals[1].is_estimated is True
+    assert intervals[0].amount is None
+    assert intervals[0].currency is None
+
+
+def test_usage_keeps_only_explicit_validated_cost_currency() -> None:
+    interval = parse(usage(record("2026-09-27T10:00:00Z", 1, cost="0.22", currency="USD")))[0]
+    assert interval.amount == Decimal("0.22")
+    assert interval.currency == "USD"
+    assert parse(usage(record("2026-09-27T11:00:00Z", -1, cost="-0.03", currency="USD"))) == ()
 
 
 @pytest.mark.parametrize("value", [True, False, float("nan"), float("inf"), "NaN", "Infinity"])
@@ -210,9 +215,9 @@ def test_usage_preserves_high_precision_and_tiny_finite_values() -> None:
             )
         )
     assert items[0].import_kwh == Decimal(precise)
-    assert items[1].return_kwh == Decimal(precise)
-    assert items[2].import_kwh == Decimal(tiny)
-    assert items[2].import_kwh != 0
+    assert len(items) == 2
+    assert items[1].import_kwh == Decimal(tiny)
+    assert items[1].import_kwh != 0
     ordinary = parse(usage(record("2026-09-27T10:00:00Z", 1)))[0]
     assert items[0].fingerprint != ordinary.fingerprint
 
@@ -326,12 +331,12 @@ def test_decimal_representation_limits_reject_small_hostile_payloads(
     assert str(error.value) == "payload"
 
 
-def test_summary_sums_and_compensation_ignore_ambient_decimal_context() -> None:
+def test_summary_exact_import_and_cost_ignore_ambient_decimal_context() -> None:
     exact = "1.12345678901234567890123456789"
     items = parse(
         usage(
-            record("2026-09-27T10:00:00Z", exact, cost="-" + exact),
-            record("2026-09-27T11:00:00Z", "-" + exact, cost=exact),
+            record("2026-09-27T10:00:00Z", exact, cost=exact, currency="USD"),
+            record("2026-09-27T11:00:00Z", exact, cost=exact, currency="USD"),
         )
     )
     with localcontext() as context:
@@ -339,14 +344,17 @@ def test_summary_sums_and_compensation_ignore_ambient_decimal_context() -> None:
         snapshot = summarize_usage(
             LedgerState(intervals=items), time_zone="UTC", now=RECEIVED, currency="USD"
         )
-    assert snapshot.month_import_kwh == Decimal(exact)
-    assert snapshot.month_return_kwh == Decimal(exact)
-    assert snapshot.month_cost == Decimal(exact)
-    assert snapshot.month_compensation == Decimal(exact)
+    with localcontext() as context:
+        context.prec = 100
+        expected = Decimal(exact) * 2
+    assert snapshot.month_import_kwh == expected
+    assert snapshot.month_return_kwh == 0
+    assert snapshot.month_cost == expected
+    assert snapshot.month_compensation == 0
 
 
 @pytest.mark.parametrize("value", ["0." + "1" * 1024, "1e-1024", "0e1024"])
 def test_source_decimal_representation_boundary_remains_exact(value: str) -> None:
-    parsed = parse(usage(record("2026-09-27T10:00:00Z", value, cost=value)))[0]
+    parsed = parse(usage(record("2026-09-27T10:00:00Z", value, cost=value, currency="USD")))[0]
     assert parsed.import_kwh == Decimal(value)
     assert parsed.amount == Decimal(value)

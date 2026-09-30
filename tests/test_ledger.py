@@ -939,9 +939,9 @@ def test_reconcile_exact_totals_ignore_active_exponent_limits() -> None:
 
 @pytest.mark.parametrize(
     "currency,cost,compensation",
-    [("USD", "10", "3"), (None, "10", "3"), ("EUR", "3", "1")],
+    [("USD", "10", "3"), (None, "3", "1"), ("EUR", "3", "1")],
 )
-def test_retention_baselines_include_only_usd_or_omitted_source_currency(
+def test_retention_baselines_include_only_exact_source_currency(
     currency: str | None,
     cost: str,
     compensation: str,

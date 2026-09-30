@@ -35,7 +35,7 @@ def summarize_usage(
     current = _aware_utc(now)
     intervals = state.intervals
     monetary_allowed = currency is not None and all(
-        item.currency in (None, currency) for item in intervals
+        item.amount is None or item.currency == currency for item in intervals
     )
     newest = intervals[-1] if intervals else None
     if newest is None:

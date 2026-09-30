@@ -21,6 +21,7 @@ class RepairKind(StrEnum):
     LEDGER_FUTURE = "ledger_future"
     SCHEMA_DRIFT = "schema_drift"
     CURRENCY_MISMATCH = "currency_mismatch"
+    TIMEZONE_MISMATCH = "timezone_mismatch"
     DATA_RETRACTION = "data_retraction"
     LEGACY_ENERGY_SOURCE = "legacy_energy_source"
     LEGACY_ENTITY_ID = "legacy_entity_id"
@@ -31,6 +32,7 @@ _ERROR_KINDS = {
     RepairKind.LEDGER_CORRUPT,
     RepairKind.LEDGER_FUTURE,
     RepairKind.SCHEMA_DRIFT,
+    RepairKind.TIMEZONE_MISMATCH,
     RepairKind.DATA_RETRACTION,
 }
 

@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 import logging
 from typing import Any, Protocol
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, callback
@@ -138,8 +138,12 @@ def _monetary_allowed(state: LedgerState, home_currency: str, provider: EnergyPr
     return (
         currency is not None
         and home_currency == currency
-        and all(item.currency in (None, currency) for item in state.intervals)
+        and all(item.amount is None or item.currency == currency for item in state.intervals)
     )
+
+
+class _TimezoneMismatchError(Exception):
+    """The provider changed the configured service timezone."""
 
 
 class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
@@ -405,15 +409,10 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         )
         return statistics_fingerprint(alternate)
 
-    def _use_confirmed_location_zone(self, location: ProviderLocation) -> None:
+    def _validate_confirmed_location_zone(self, location: ProviderLocation) -> None:
         if location.time_zone is None or location.time_zone == self._time_zone:
             return
-        try:
-            zone = ZoneInfo(location.time_zone)
-        except ValueError, ZoneInfoNotFoundError:
-            return
-        self._time_zone = location.time_zone
-        self._zone = zone
+        raise _TimezoneMismatchError from None
 
     async def _async_recover_pending_statistics(self) -> None:
         state = self._ledger.state
@@ -532,6 +531,7 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._repair_conditions.discard("schema_drift")
         self._repair_conditions.discard("data_retraction")
         self._repair_conditions.discard("ledger_repair")
+        self._repair_conditions.discard("timezone_mismatch")
         if _monetary_allowed(self._ledger.state, self.hass.config.currency, self._provider):
             self._repair_conditions.discard("currency_mismatch")
             self._condition = None
@@ -554,7 +554,7 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         now = _utc_now(self._clock)
         budget = RequestBudget()
         location = await self._provider.async_confirm_location(self._private_location_id, budget)
-        self._use_confirmed_location_zone(location)
+        self._validate_confirmed_location_zone(location)
         today = now.astimezone(self._zone).date()
         floor = today - timedelta(days=self._normal_days - 1)
         pages: list[EnergyInterval] = []
@@ -618,6 +618,14 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         except PayloadError:
             self._condition = "schema_drift"
             self._repair_conditions.add("schema_drift")
+            self._normal_network_healthy = True
+            self._restore_normal_interval()
+            self._refresh_backfill_stalled()
+            self._defer_status_notification()
+            return self.data
+        except _TimezoneMismatchError:
+            self._condition = "timezone_mismatch"
+            self._repair_conditions.add("timezone_mismatch")
             self._normal_network_healthy = True
             self._restore_normal_interval()
             self._refresh_backfill_stalled()
@@ -690,6 +698,7 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             "data_retraction",
             "ledger_repair",
             "currency_mismatch",
+            "timezone_mismatch",
         }:
             self._repair_conditions.add(self._condition)
         self._refresh_backfill_stalled()
@@ -720,6 +729,7 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._repair_conditions.discard("schema_drift")
         self._repair_conditions.discard("data_retraction")
         self._repair_conditions.discard("ledger_repair")
+        self._repair_conditions.discard("timezone_mismatch")
         if _monetary_allowed(self._ledger.state, self.hass.config.currency, self._provider):
             self._repair_conditions.discard("currency_mismatch")
             self._condition = None
@@ -745,7 +755,7 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                 location = await self._provider.async_confirm_location(
                     self._private_location_id, budget
                 )
-                self._use_confirmed_location_zone(location)
+                self._validate_confirmed_location_zone(location)
                 start, floor, complete = self._next_backfill_page(now)
                 incoming = await self._async_fetch_window(
                     start,
@@ -810,6 +820,11 @@ class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             raise ConfigEntryAuthFailed(error.category.value) from None
         except PayloadError:
             self._backfill_failure(PayloadError(), condition="schema_drift")
+            return False
+        except _TimezoneMismatchError:
+            self._backfill_failure(
+                EnergyUsageError(ErrorCategory.PAYLOAD), condition="timezone_mismatch"
+            )
             return False
         except RateLimitError as error:
             self._backfill_failure(error)

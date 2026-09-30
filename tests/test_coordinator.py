@@ -8,7 +8,6 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pytest
 from custom_components.energy_usage import coordinator as module
@@ -358,7 +357,7 @@ async def test_normal_sync_fetches_seven_pages_in_one_shared_budget_and_one_inge
     assert result.latest_import_kwh == 1
 
 
-async def test_confirmed_account_zone_controls_same_chain_dates_and_later_fallback(
+async def test_confirmed_account_zone_change_is_quarantined_before_fetch(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     client = FakeProvider()
@@ -373,18 +372,16 @@ async def test_confirmed_account_zone_controls_same_chain_dates_and_later_fallba
     )
     await subject.async_initialize()
     await subject._async_update_data()
-    assert [call[1] for call in client.calls if call[0] == "page"][-1] == date(2026, 9, 25)
-    assert all(
-        request.start.astimezone(ZoneInfo("America/Los_Angeles")).hour == 0
-        for request in client.requests
-    )
+    assert client.requests == []
+    assert subject.diagnostics()["repair_conditions"] == ["timezone_mismatch"]
     assert config_entry.data["time_zone"] == "America/Chicago"
     client.account_time_zone = None
     await subject._async_update_data()
-    assert len(client.requests) == 14
+    assert len(client.requests) == 7
+    assert subject.diagnostics()["repair_conditions"] == []
 
 
-async def test_confirmed_account_zone_controls_first_backfill_page(
+async def test_confirmed_account_zone_change_blocks_backfill_before_fetch(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     client = FakeProvider()
@@ -393,9 +390,9 @@ async def test_confirmed_account_zone_controls_first_backfill_page(
         hass, client, FakeLedger(), clock=FakeClock(datetime(2026, 9, 28, 5, 30, tzinfo=UTC))
     )
     await subject.async_initialize()
-    assert await subject.async_run_backfill_once()
-    assert [call[1] for call in client.calls if call[0] == "page"] == [date(2026, 9, 21)]
-    assert client.requests[0].start.astimezone(ZoneInfo("America/Los_Angeles")).hour == 0
+    assert not await subject.async_run_backfill_once()
+    assert client.requests == []
+    assert subject.diagnostics()["repair_conditions"] == ["timezone_mismatch"]
 
 
 async def test_normal_chain_leaves_exact_budget_for_one_auth_recovery(

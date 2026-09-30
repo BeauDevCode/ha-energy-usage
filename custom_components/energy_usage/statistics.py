@@ -99,7 +99,9 @@ def build_hourly_statistics(
     monetary = (
         provider_currency is not None
         and currency == provider_currency
-        and all(item.currency in (None, provider_currency) for item in state.intervals)
+        and all(
+            item.amount is None or item.currency == provider_currency for item in state.intervals
+        )
     )
     amounts_present = any(item.amount is not None for item in state.intervals) or bool(
         state.baseline.cost or state.baseline.compensation

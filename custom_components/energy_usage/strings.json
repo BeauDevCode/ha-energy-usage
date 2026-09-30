@@ -88,6 +88,10 @@
       "title": "Cost data is unavailable",
       "description": "Energy usage remains available, but money data is hidden until the provider and Home Assistant currencies match."
     },
+    "timezone_mismatch": {
+      "title": "Service timezone changed",
+      "description": "New utility data is paused because the provider reported a different service timezone. The last verified usage data remains available."
+    },
     "data_retraction": {
       "title": "Unexpected usage revision quarantined",
       "description": "A large or explicit usage revision was quarantined. The last verified usage history remains unchanged."

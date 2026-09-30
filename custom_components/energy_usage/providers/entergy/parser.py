@@ -350,18 +350,30 @@ def parse_usage(
             estimated = hour.get("isEstimated")
             if not isinstance(estimated, bool):
                 raise PayloadError
-            currency_value = hour.get("currency", data.get("currency", "USD"))
-            currency = _nonempty_string(currency_value).upper()
-            if currency not in _CURRENCIES:
-                raise PayloadError
+            currency_value = hour.get("currency", data.get("currency"))
+            currency = None
+            if currency_value is not None:
+                currency = _nonempty_string(currency_value).upper()
+                if currency not in _CURRENCIES:
+                    raise PayloadError
             revision = hour.get("sourceRevision")
             if revision is not None:
                 revision = _nonempty_string(revision)
+            # Entergy exposes one signed net-usage field, not independent import
+            # and return series. A negative hour is therefore unknown for both
+            # gross directions and must not be converted into returned energy.
+            if signed_usage < 0:
+                continue
+            # Money is usable only when the source supplied its currency. A
+            # negative signed cost is not a separate compensation measurement.
+            if amount is None or amount < 0 or currency is None:
+                amount = None
+                currency = None
             interval = EnergyInterval(
                 start=start,
                 end=start + _HOUR,
-                import_kwh=signed_usage if signed_usage > 0 else Decimal(0),
-                return_kwh=signed_usage.copy_negate() if signed_usage < 0 else Decimal(0),
+                import_kwh=signed_usage,
+                return_kwh=Decimal(0),
                 amount=amount,
                 currency=currency,
                 is_estimated=estimated,

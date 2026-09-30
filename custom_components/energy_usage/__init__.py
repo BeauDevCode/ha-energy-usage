@@ -53,6 +53,7 @@ _RUNTIME_REPAIRS = {
     RepairKind.LEDGER_FUTURE,
     RepairKind.SCHEMA_DRIFT,
     RepairKind.CURRENCY_MISMATCH,
+    RepairKind.TIMEZONE_MISMATCH,
     RepairKind.DATA_RETRACTION,
     RepairKind.BACKFILL_STALLED,
 }
@@ -275,6 +276,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnergyUsageConfigEntry) 
             for kind in (
                 RepairKind.DATA_RETRACTION,
                 RepairKind.SCHEMA_DRIFT,
+                RepairKind.TIMEZONE_MISMATCH,
                 RepairKind.LEDGER_FUTURE,
                 RepairKind.LEDGER_CORRUPT,
             ):

@@ -6,9 +6,11 @@ Energy Usage separates its Home Assistant entities, ledger, statistics, and diag
 
 | Provider | Country | Locations | Measurements | Status |
 | --- | --- | --- | --- | --- |
-| Entergy | United States | One selected service location | Imported energy, returned energy, cost, and compensation when present and validated | Release candidate |
+| Entergy | United States | One selected service location | Positive imported energy; cost only when the source supplies validated USD | Release candidate |
 
 Entergy is the only available provider in the first release. Its account interface is unofficial and may change without notice. Interactive MFA, CAPTCHA, consent, and unknown redirects are unsupported and fail closed. Do not weaken account security to make the adapter work.
+
+The reviewed Entergy response contains one signed net-usage value rather than independent import and return series. Negative net hours are left unknown; they are not converted into returned energy. Negative signed cost is not treated as compensation. Cost is retained only when the same source interval explicitly supplies a validated USD currency.
 
 ## Provider roadmap
 

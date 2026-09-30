@@ -41,7 +41,7 @@ def _add_interval(
     # currency. Use the same eligible contributions for retained running totals.
     amount = (
         item.amount
-        if currency is not None and item.amount is not None and item.currency in (None, currency)
+        if currency is not None and item.amount is not None and item.currency == currency
         else Decimal(0)
     )
     return LedgerTotals(
