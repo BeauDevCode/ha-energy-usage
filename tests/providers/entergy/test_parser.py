@@ -15,8 +15,8 @@ from custom_components.energy_usage.providers.entergy.parser import (
     parse_client_metadata,
     parse_login,
     parse_usage,
-    summarize_usage,
 )
+from custom_components.energy_usage.summary import summarize_usage
 
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 RECEIVED = datetime(2026, 9, 28, tzinfo=UTC)
@@ -151,7 +151,10 @@ def test_local_day_and_freshness_boundaries() -> None:
     items = parse(usage(record("2026-09-28T00:00:00Z", 2), record("2026-09-28T05:00:00Z", 3)))
     state = LedgerState(intervals=items)
     snapshot = summarize_usage(
-        state, time_zone="America/Chicago", now=datetime(2026, 9, 28, 6, tzinfo=UTC)
+        state,
+        time_zone="America/Chicago",
+        now=datetime(2026, 9, 28, 6, tzinfo=UTC),
+        currency="USD",
     )
     assert snapshot.today_import_kwh == Decimal("3")
     assert snapshot.freshness is Freshness.FRESH
@@ -163,13 +166,19 @@ def test_local_day_and_freshness_boundaries() -> None:
     ):
         assert (
             summarize_usage(
-                LedgerState(intervals=items), time_zone="America/Chicago", now=items[-1].end + age
+                LedgerState(intervals=items),
+                time_zone="America/Chicago",
+                now=items[-1].end + age,
+                currency="USD",
             ).freshness
             is expected
         )
     assert (
         summarize_usage(
-            LedgerState(intervals=()), time_zone="America/Chicago", now=RECEIVED
+            LedgerState(intervals=()),
+            time_zone="America/Chicago",
+            now=RECEIVED,
+            currency="USD",
         ).freshness
         is Freshness.UNKNOWN
     )
@@ -178,7 +187,10 @@ def test_local_day_and_freshness_boundaries() -> None:
 def test_foreign_currency_preserves_energy_without_usd_monetary_summary() -> None:
     items = parse(usage(record("2026-09-27T10:00:00Z", 2, cost=3, currency="CAD")))
     snapshot = summarize_usage(
-        LedgerState(intervals=items), time_zone="America/Chicago", now=RECEIVED
+        LedgerState(intervals=items),
+        time_zone="America/Chicago",
+        now=RECEIVED,
+        currency="USD",
     )
     assert snapshot.latest_import_kwh == Decimal("2")
     assert snapshot.latest_cost is None
@@ -324,7 +336,9 @@ def test_summary_sums_and_compensation_ignore_ambient_decimal_context() -> None:
     )
     with localcontext() as context:
         context.prec = 5
-        snapshot = summarize_usage(LedgerState(intervals=items), time_zone="UTC", now=RECEIVED)
+        snapshot = summarize_usage(
+            LedgerState(intervals=items), time_zone="UTC", now=RECEIVED, currency="USD"
+        )
     assert snapshot.month_import_kwh == Decimal(exact)
     assert snapshot.month_return_kwh == Decimal(exact)
     assert snapshot.month_cost == Decimal(exact)

@@ -18,7 +18,19 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parents[1]
 EXPIRY = datetime(2026, 10, 29, tzinfo=UTC)
 EXPECTED = {("cryptography", "48.0.1", f"PYSEC-2026-{number}") for number in (3552, 3553, 3554)} | {
-    ("pyjwt", "2.13.0", "CVE-2026-102274")
+    ("pyjwt", "2.13.0", advisory)
+    for advisory in (
+        "CVE-2026-101917",
+        "CVE-2026-102265",
+        "CVE-2026-102266",
+        "CVE-2026-102267",
+        "CVE-2026-102268",
+        "CVE-2026-102269",
+        "CVE-2026-102271",
+        "CVE-2026-102272",
+        "CVE-2026-102273",
+        "CVE-2026-102274",
+    )
 }
 PINS = {"cryptography": "48.0.1", "pyjwt": "2.13.0"}
 
@@ -119,7 +131,7 @@ def run(expected_ha: str) -> None:
         installed[name] = distribution.version
     requirements = metadata.requires("homeassistant") or []
     manifest = json.loads((ROOT / "custom_components/energy_usage/manifest.json").read_text())
-    with TemporaryDirectory(prefix="entergy-audit-") as directory:
+    with TemporaryDirectory(prefix="energy-usage-audit-") as directory:
         output = Path(directory) / "audit.json"
         started = datetime.now(UTC)
         result = subprocess.run(

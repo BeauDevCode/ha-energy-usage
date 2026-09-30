@@ -1,7 +1,7 @@
 [project]
 name = "ha-energy-usage"
-version = "0.1.1"
-description = "Development environment for the Entergy Home Assistant custom integration"
+version = "0.1.0-rc.1"
+description = "Development environment for the provider-neutral Energy Usage integration"
 requires-python = ">=3.14,<3.15"
 dependencies = [
   "homeassistant==2026.9.4",
@@ -43,7 +43,6 @@ line-length = 100
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-"custom_components/energy_usage/api.py" = ["I001"]
 "custom_components/energy_usage/config_flow.py" = ["I001"]
 "custom_components/energy_usage/coordinator.py" = ["I001"]
 

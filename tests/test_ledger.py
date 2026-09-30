@@ -64,6 +64,21 @@ def new_ledger(
     )
 
 
+@pytest.mark.parametrize(
+    ("provider_key", "provider_schema_version"),
+    [("", 1), ("entergy", 0), ("entergy", True)],
+)
+def test_ledger_rejects_invalid_provider_identity(
+    hass: HomeAssistant, provider_key: str, provider_schema_version: int
+) -> None:
+    with pytest.raises(ValueError, match="invalid provider ledger identity"):
+        new_ledger(
+            hass,
+            provider_key=provider_key,
+            provider_schema_version=provider_schema_version,
+        )
+
+
 async def loaded(hass: HomeAssistant) -> EnergyLedger:
     ledger = new_ledger(hass)
     await ledger.async_load(initialized=False)

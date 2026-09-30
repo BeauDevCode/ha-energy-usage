@@ -8,9 +8,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CRITICAL = tuple(
-    f"custom_components/energy_usage/{name}.py"
-    for name in ("api", "errors", "parser", "ledger", "statistics", "diagnostics")
+CRITICAL = (
+    "custom_components/energy_usage/errors.py",
+    "custom_components/energy_usage/provider.py",
+    "custom_components/energy_usage/ledger.py",
+    "custom_components/energy_usage/statistics.py",
+    "custom_components/energy_usage/diagnostics.py",
+    "custom_components/energy_usage/providers/entergy/api.py",
+    "custom_components/energy_usage/providers/entergy/parser.py",
 )
 
 

@@ -201,6 +201,29 @@ def test_diagnostic_defaults_and_backfill_never_claims_early_completion() -> Non
     assert sensor("backfill_progress").native_value == 99
 
 
+def test_diagnostic_values_fail_closed_and_report_verified_completion() -> None:
+    subject = sensor("last_successful_fetch")
+    subject.coordinator.diagnostics = lambda: {"last_successful_fetch": None}  # type: ignore[method-assign]
+    assert subject.native_value is None
+    subject.coordinator.diagnostics = lambda: {  # type: ignore[method-assign]
+        "last_successful_fetch": "not-a-timestamp"
+    }
+    assert subject.native_value is None
+
+    progress = sensor("backfill_progress")
+    progress.coordinator.diagnostics = lambda: {  # type: ignore[method-assign]
+        "backfill_progress_percent": 7,
+        "backfill_complete": True,
+    }
+    assert progress.native_value == 100
+    progress.coordinator.diagnostics = lambda: {  # type: ignore[method-assign]
+        "backfill_progress_percent": None,
+        "backfill_complete": False,
+    }
+    assert progress.native_value is None
+    assert sensor("retained_interval_count").native_value == 12
+
+
 def test_generic_device_and_public_unique_ids_have_no_attributes() -> None:
     subject = sensor("today_import")
     assert subject.unique_id == f"{PUBLIC_ID}_today_import"

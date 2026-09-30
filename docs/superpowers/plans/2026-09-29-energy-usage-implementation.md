@@ -170,8 +170,10 @@ Define these stable signatures:
 @dataclass(frozen=True, slots=True)
 class ProviderCapabilities: ...
 
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ProviderLocation: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderDescriptor:
@@ -179,14 +181,21 @@ class ProviderDescriptor:
     name: str
     country_codes: frozenset[str]
 
+
 class EnergyProvider(Protocol):
     descriptor: ProviderDescriptor
     capabilities: ProviderCapabilities
+
     async def authenticate(self, budget: RequestBudget) -> None: ...
     async def async_list_locations(self, budget: RequestBudget) -> tuple[ProviderLocation, ...]: ...
-    async def async_confirm_location(self, private_location_id: str, budget: RequestBudget) -> ProviderLocation: ...
-    async def async_fetch_intervals(self, request: IntervalRequest, budget: RequestBudget) -> IntervalPage: ...
+    async def async_confirm_location(
+        self, private_location_id: str, budget: RequestBudget
+    ) -> ProviderLocation: ...
+    async def async_fetch_intervals(
+        self, request: IntervalRequest, budget: RequestBudget
+    ) -> IntervalPage: ...
     async def async_logout(self, budget: RequestBudget) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderFactory:
@@ -194,10 +203,13 @@ class ProviderFactory:
     auth_schema: Callable[[], vol.Schema]
     create: Callable[[ClientSession, Mapping[str, Any]], EnergyProvider]
 
+
 def register_provider(factory: ProviderFactory) -> None: ...
 def provider_descriptors() -> tuple[ProviderDescriptor, ...]: ...
 def provider_auth_schema(key: str) -> vol.Schema: ...
-def create_provider(key: str, session: ClientSession, auth: Mapping[str, Any]) -> EnergyProvider: ...
+def create_provider(
+    key: str, session: ClientSession, auth: Mapping[str, Any]
+) -> EnergyProvider: ...
 ```
 
 Move the request budget and value-free error categories into the common layer. Rename Entergy-specific common exception classes while keeping their no-secret string and repr behavior.

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+from aiohttp import ClientError
 from custom_components.energy_usage.config_flow import EnergyUsageConfigFlow
 from custom_components.energy_usage.const import (
     CONF_AUTH,
@@ -20,7 +21,7 @@ from custom_components.energy_usage.const import (
     CONF_PROVIDER_KEY,
     DOMAIN,
 )
-from custom_components.energy_usage.errors import AuthError, ChallengeError
+from custom_components.energy_usage.errors import AuthError, ChallengeError, PayloadError
 from custom_components.energy_usage.models import (
     ProviderCapabilities,
     ProviderDescriptor,
@@ -143,6 +144,9 @@ def test_password_selector_and_disclosure() -> None:
     [
         (AuthError(), "invalid_auth"),
         (ChallengeError(), "unsupported_challenge"),
+        (ValueError(), "invalid_location"),
+        (PayloadError(), "cannot_connect"),
+        (ClientError(), "cannot_connect"),
         (RuntimeError("private-canary"), "unknown"),
     ],
 )
@@ -209,6 +213,42 @@ async def test_forged_location_selection_aborts(
         )
     assert "private-canary" not in str(error.value)
     assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (ChallengeError(), "unsupported_challenge"),
+        (AuthError(), "invalid_auth"),
+        (ValueError(), "invalid_location"),
+        (PayloadError(), "cannot_connect"),
+        (ClientError(), "cannot_connect"),
+        (RuntimeError("private-canary"), "unknown"),
+    ],
+)
+async def test_location_confirmation_errors_abort_without_leaking(
+    hass: HomeAssistant,
+    provider_client: AsyncMock,
+    error: Exception,
+    reason: str,
+) -> None:
+    result = await authenticate(hass)
+    provider_client.async_confirm_location.side_effect = error
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"location": "0"})
+    assert result["type"] == "abort" and result["reason"] == reason
+    assert "private-canary" not in repr(result)
+
+
+async def test_location_confirmation_must_preserve_private_identity(
+    hass: HomeAssistant, provider_client: AsyncMock
+) -> None:
+    result = await authenticate(hass)
+    provider_client.async_confirm_location.side_effect = None
+    provider_client.async_confirm_location.return_value = ProviderLocation(
+        "different-location", "Account ••••0000", "America/Chicago"
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"location": "0"})
+    assert result["type"] == "abort" and result["reason"] == "invalid_location"
 
 
 async def test_adapter_location_is_defensively_revalidated(
@@ -321,6 +361,39 @@ async def test_reauth_preserves_identity_and_requires_same_location(
     assert entry.unique_id == PUBLIC
     assert entry.title == "Mock Title"
     provider_client.async_logout.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (ChallengeError(), "unsupported_challenge"),
+        (AuthError(), "invalid_auth"),
+        (ValueError(), "invalid_location"),
+        (PayloadError(), "cannot_connect"),
+        (ClientError(), "cannot_connect"),
+        (RuntimeError("private-canary"), "unknown"),
+    ],
+)
+async def test_reauth_errors_preserve_existing_credentials(
+    hass: HomeAssistant,
+    provider_client: AsyncMock,
+    error: Exception,
+    reason: str,
+) -> None:
+    entry = common.MockConfigEntry(domain=DOMAIN, unique_id=PUBLIC, version=1, data=entry_data())
+    entry.add_to_hass(hass)
+    before = dict(entry.data)
+    provider_client.authenticate.side_effect = error
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=before,
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], AUTH)
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": reason}
+    assert entry.data == before
+    assert "private-canary" not in repr(result)
 
 
 @pytest.mark.parametrize(("old", "expected"), [(None, 14400), (60, 7200), (10800, 10800)])

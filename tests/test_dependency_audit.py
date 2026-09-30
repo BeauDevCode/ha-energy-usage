@@ -22,7 +22,25 @@ def report() -> dict:
                 "version": "48.0.1",
                 "vulns": [{"id": f"PYSEC-2026-{n}"} for n in (3552, 3553, 3554, 3552)],
             },
-            {"name": "PyJWT", "version": "2.13.0", "vulns": [{"id": "CVE-2026-102274"}]},
+            {
+                "name": "PyJWT",
+                "version": "2.13.0",
+                "vulns": [
+                    {"id": advisory}
+                    for advisory in (
+                        "CVE-2026-101917",
+                        "CVE-2026-102265",
+                        "CVE-2026-102266",
+                        "CVE-2026-102267",
+                        "CVE-2026-102268",
+                        "CVE-2026-102269",
+                        "CVE-2026-102271",
+                        "CVE-2026-102272",
+                        "CVE-2026-102273",
+                        "CVE-2026-102274",
+                    )
+                ],
+            },
         ],
         "fixes": [],
     }
@@ -49,7 +67,7 @@ def check(gate, payload=None, **kwargs):
 
 
 def test_exact_exception_normalizes_duplicates_and_names(gate) -> None:
-    assert check(gate) == 4
+    assert check(gate) == 13
 
 
 @pytest.mark.parametrize("version", ["2026.9.3", "2026.9.4"])
@@ -58,7 +76,7 @@ def test_both_exact_environments(gate, version) -> None:
     data["dependencies"][0]["version"] = version
     assert (
         check(gate, data, expected_ha=version, installed={**INVENTORY, "homeassistant": version})
-        == 4
+        == 13
     )
 
 

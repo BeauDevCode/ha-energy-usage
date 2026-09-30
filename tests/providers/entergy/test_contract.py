@@ -9,11 +9,12 @@ from unittest.mock import AsyncMock
 
 import aiohttp
 import pytest
-from custom_components.energy_usage.errors import ChallengeError
+from custom_components.energy_usage.errors import ChallengeError, PolicyError
 from custom_components.energy_usage.models import Account, EnergyInterval, ProviderLocation
 from custom_components.energy_usage.provider import IntervalRequest, RequestBudget
 from custom_components.energy_usage.providers.entergy import (
     ENTERGY_DESCRIPTOR,
+    ENTERGY_FACTORY,
     EntergyProvider,
 )
 
@@ -98,3 +99,53 @@ async def test_challenge_error_never_echoes_auth_values() -> None:
     rendered = f"{error.value!s} {error.value!r}"
     assert "private-user" not in rendered
     assert "private-password" not in rendered
+
+
+@pytest.mark.parametrize(
+    "auth",
+    [
+        {},
+        {"username": "", "password": "private-password"},
+        {"username": "private-user", "password": ""},
+        {"username": "private-user", "password": "private-password", "language": "fr"},
+    ],
+)
+def test_adapter_rejects_incomplete_or_unsupported_auth(auth: dict[str, str]) -> None:
+    with pytest.raises(PolicyError):
+        EntergyProvider(cast(aiohttp.ClientSession, object()), auth)
+
+
+async def test_adapter_rejects_unconfirmed_cursor_and_invalid_week() -> None:
+    result = adapter()
+    start = datetime(2026, 9, 1, tzinfo=UTC)
+    with pytest.raises(PolicyError):
+        await result.async_fetch_intervals(
+            IntervalRequest("0001234567", start, start + timedelta(days=7)),
+            RequestBudget(),
+        )
+
+    result._client.async_get_account.return_value = Account("0001234567", None, "UTC")
+    await result.async_confirm_location("0001234567", RequestBudget())
+    with pytest.raises(PolicyError):
+        await result.async_fetch_intervals(
+            IntervalRequest(
+                "0001234567",
+                start,
+                start + timedelta(days=7),
+                cursor="next",
+            ),
+            RequestBudget(),
+        )
+    with pytest.raises(PolicyError):
+        await result.async_fetch_intervals(
+            IntervalRequest("0001234567", start, start + timedelta(days=8)),
+            RequestBudget(),
+        )
+
+
+def test_registered_factory_builds_the_reviewed_adapter() -> None:
+    result = ENTERGY_FACTORY.create(
+        cast(aiohttp.ClientSession, object()),
+        {"username": "private-user", "password": "private-password"},
+    )
+    assert isinstance(result, EntergyProvider)
