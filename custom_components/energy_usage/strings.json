@@ -46,8 +46,12 @@
     },
     "error": {
       "cannot_connect": "Unable to connect to the energy provider.",
+      "provider_app_unavailable": "The provider app configuration could not be loaded. Try again later.",
+      "provider_login_unavailable": "The provider sign-in service did not return a usable response. Try again later.",
+      "provider_accounts_unavailable": "Sign-in succeeded, but service locations could not be loaded from the provider.",
+      "account_access_denied": "Sign-in succeeded, but the provider rejected access to service locations. Check account permissions or provider verification.",
       "no_export_confirmation_required": "Confirm this service does not export energy to the grid. Solar export and net metering are not supported in this release.",
-      "invalid_auth": "Invalid username or password.",
+      "invalid_auth": "The provider rejected a sign-in request. Check account access and any required verification.",
       "unsupported_challenge": "The provider requires an interactive login step that this integration cannot complete. Keep account security enabled.",
       "no_locations": "Login worked, but no service locations were returned.",
       "invalid_location": "The provider returned an invalid or unsupported service location.",

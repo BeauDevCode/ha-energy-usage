@@ -29,6 +29,7 @@ class EnergyUsageError(Exception):
         self.category = category
         self.status = status
         self.retry_after = retry_after
+        self.operation: str | None = None
         super().__init__(category.value)
 
     def __repr__(self) -> str:

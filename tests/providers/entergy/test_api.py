@@ -694,6 +694,76 @@ async def test_invalid_credentials_on_initial_login_prevent_account_call() -> No
     assert [urlsplit(url).path for _, url, _ in session.calls] == ["/api/app", "/api/login"]
 
 
+async def test_app_failure_is_marked_as_app_without_exposing_response() -> None:
+    session = FakeSession(FakeResponse({"private": "secret-body"}, status=503))
+    with pytest.raises(EnergyUsageError) as caught:
+        await client(session).async_get_accounts(api.RequestBudget())
+    assert caught.value.operation == "app"
+    assert caught.value.category is ErrorCategory.TRANSIENT
+    assert caught.value.status == 503
+    assert "secret-body" not in repr(caught.value)
+    assert [urlsplit(url).path for _, url, _ in session.calls] == ["/api/app"]
+
+
+async def test_login_rejection_is_marked_as_login_not_accounts() -> None:
+    session = FakeSession(
+        FakeResponse({"clientId": "client"}),
+        FakeResponse({"private": "secret-body"}, status=401),
+    )
+    with pytest.raises(AuthError) as caught:
+        await client(session).async_get_accounts(api.RequestBudget())
+    assert caught.value.operation == "login"
+    assert caught.value.status == 401
+    assert "secret-body" not in repr(caught.value)
+    assert [urlsplit(url).path for _, url, _ in session.calls] == ["/api/app", "/api/login"]
+
+
+async def test_accounts_rejection_after_successful_login_is_marked_as_accounts() -> None:
+    session = FakeSession(
+        FakeResponse({"clientId": "client"}),
+        FakeResponse({"token": "secret-token"}),
+        FakeResponse({"private": "secret-body"}, status=403),
+        FakeResponse({"token": "replacement-token"}),
+        FakeResponse({"private": "secret-body"}, status=403),
+    )
+    with pytest.raises(AuthError) as caught:
+        await client(session).async_get_accounts(api.RequestBudget())
+    assert caught.value.operation == "accounts"
+    assert caught.value.status == 403
+    assert "secret-body" not in repr(caught.value)
+    assert [urlsplit(url).path for _, url, _ in session.calls] == [
+        "/api/app",
+        "/api/login",
+        "/api/accounts",
+        "/api/login",
+        "/api/accounts",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("responses", "expected_operation"),
+    [
+        ([FakeResponse({"unreviewed": "secret-body"})], "app"),
+        ([FakeResponse({"clientId": "client"}), FakeResponse({"token": 123})], "login"),
+        (
+            [
+                FakeResponse({"clientId": "client"}),
+                FakeResponse({"token": "secret-token"}),
+                FakeResponse({"accounts": {"private": "secret-body"}}),
+            ],
+            "accounts",
+        ),
+    ],
+)
+async def test_parser_failure_keeps_safe_operation(
+    responses: list[FakeResponse], expected_operation: str
+) -> None:
+    with pytest.raises(PayloadError) as caught:
+        await client(FakeSession(*responses)).async_get_accounts(api.RequestBudget())
+    assert caught.value.operation == expected_operation
+    assert "secret-body" not in repr(caught.value)
+
+
 async def test_token_is_cleared_when_initialization_fails_during_login() -> None:
     session = FakeSession(FakeResponse({"clientId": 123}))
     subject = authenticated(session)

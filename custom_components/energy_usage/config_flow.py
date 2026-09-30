@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from typing import Any
 from uuid import uuid4
@@ -34,7 +35,13 @@ from .const import (
     MIN_SCAN_INTERVAL_SECONDS,
     PROVIDER_SCHEMA_VERSION,
 )
-from .errors import AuthError, ChallengeError, EnergyUsageError, NoExportConfirmationError
+from .errors import (
+    AuthError,
+    ChallengeError,
+    EnergyUsageError,
+    ErrorCategory,
+    NoExportConfirmationError,
+)
 from .models import ProviderDescriptor, ProviderLocation
 from .provider import (
     RequestBudget,
@@ -45,6 +52,34 @@ from .provider import (
 from .statistics import statistic_ids
 
 CONF_LOCATION = "location"
+_LOGGER = logging.getLogger(__name__)
+_SETUP_OPERATIONS = frozenset({"app", "login", "accounts"})
+
+
+def _setup_failure_reason(error: EnergyUsageError) -> str:
+    """Report a value-free setup stage and retain only approved diagnostic fields."""
+    operation = error.operation
+    safe_operation = (
+        operation if isinstance(operation, str) and operation in _SETUP_OPERATIONS else "unknown"
+    )
+    category = error.category.value if isinstance(error.category, ErrorCategory) else "unknown"
+    status = error.status
+    safe_status = status if type(status) is int and 100 <= status <= 599 else None
+    _LOGGER.warning(
+        "Energy Usage setup failed: operation=%s category=%s http_status=%s",
+        safe_operation,
+        category,
+        safe_status,
+    )
+    if isinstance(error, AuthError):
+        if safe_operation == "app":
+            return "provider_app_unavailable"
+        return "account_access_denied" if safe_operation == "accounts" else "invalid_auth"
+    return {
+        "app": "provider_app_unavailable",
+        "login": "provider_login_unavailable",
+        "accounts": "provider_accounts_unavailable",
+    }.get(safe_operation, "cannot_connect")
 
 
 def _provider_options() -> list[selector.SelectOptionDict]:
@@ -158,15 +193,18 @@ class EnergyUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._auth = auth
                     self._locations = locations
                     return await self.async_step_location()
-            except ChallengeError:
+            except ChallengeError as error:
+                _setup_failure_reason(error)
                 errors["base"] = "unsupported_challenge"
-            except AuthError:
-                errors["base"] = "invalid_auth"
+            except AuthError as error:
+                errors["base"] = _setup_failure_reason(error)
             except ValueError:
                 errors["base"] = "invalid_location"
             except NoExportConfirmationError:
                 errors[CONF_NO_EXPORT] = "no_export_confirmation_required"
-            except EnergyUsageError, ClientError:
+            except EnergyUsageError as error:
+                errors["base"] = _setup_failure_reason(error)
+            except ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:
                 errors["base"] = "unknown"
@@ -297,15 +335,18 @@ class EnergyUsageConfigFlow(ConfigFlow, domain=DOMAIN):
             auth = dict(user_input)
             try:
                 locations = await _async_locations(self.hass, provider_key, auth)
-            except ChallengeError:
+            except ChallengeError as error:
+                _setup_failure_reason(error)
                 errors["base"] = "unsupported_challenge"
-            except AuthError:
-                errors["base"] = "invalid_auth"
+            except AuthError as error:
+                errors["base"] = _setup_failure_reason(error)
             except ValueError:
                 errors["base"] = "invalid_location"
             except NoExportConfirmationError:
                 errors[CONF_NO_EXPORT] = "no_export_confirmation_required"
-            except EnergyUsageError, ClientError:
+            except EnergyUsageError as error:
+                errors["base"] = _setup_failure_reason(error)
+            except ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:
                 errors["base"] = "unknown"

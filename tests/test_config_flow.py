@@ -21,7 +21,14 @@ from custom_components.energy_usage.const import (
     CONF_PROVIDER_KEY,
     DOMAIN,
 )
-from custom_components.energy_usage.errors import AuthError, ChallengeError, PayloadError
+from custom_components.energy_usage.errors import (
+    AuthError,
+    ChallengeError,
+    EnergyUsageError,
+    ErrorCategory,
+    PayloadError,
+    RateLimitError,
+)
 from custom_components.energy_usage.models import (
     ProviderCapabilities,
     ProviderDescriptor,
@@ -197,6 +204,69 @@ async def test_unconfirmed_no_export_shows_field_error(hass: HomeAssistant) -> N
     assert result["step_id"] == "auth"
     assert result["errors"] == {"confirm_no_export": "no_export_confirmation_required"}
     assert not hass.config_entries.async_entries(DOMAIN)
+
+
+@pytest.mark.parametrize(
+    ("error", "operation", "reason", "category", "status"),
+    [
+        (
+            EnergyUsageError(ErrorCategory.TRANSIENT, 503),
+            "app",
+            "provider_app_unavailable",
+            "transient",
+            503,
+        ),
+        (AuthError(403), "app", "provider_app_unavailable", "auth", 403),
+        (RateLimitError(429), "login", "provider_login_unavailable", "rate_limit", 429),
+        (PayloadError(), "accounts", "provider_accounts_unavailable", "payload", None),
+        (AuthError(403), "accounts", "account_access_denied", "auth", 403),
+        (AuthError(401), "login", "invalid_auth", "auth", 401),
+    ],
+)
+async def test_setup_shows_safe_failure_stage_without_secret_values(
+    hass: HomeAssistant,
+    provider_client: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    error: EnergyUsageError,
+    operation: str,
+    reason: str,
+    category: str,
+    status: int | None,
+) -> None:
+    error.operation = operation
+    error.args = ("private-canary",)
+    provider_client.authenticate.side_effect = error
+    result = await authenticate(hass)
+    assert result["step_id"] == "auth"
+    assert result["errors"] == {"base": reason}
+    assert not hass.config_entries.async_entries(DOMAIN)
+    assert f"operation={operation} category={category} http_status={status}" in caplog.text
+    assert "private-canary" not in caplog.text
+    assert AUTH["username"] not in caplog.text
+    assert AUTH["password"] not in caplog.text
+
+
+async def test_unknown_operation_is_never_logged_or_exposed(
+    hass: HomeAssistant, provider_client: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    error = EnergyUsageError(ErrorCategory.TRANSIENT, 503)
+    error.operation = "private-canary"
+    provider_client.authenticate.side_effect = error
+    result = await authenticate(hass)
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert "operation=unknown category=transient http_status=503" in caplog.text
+    assert "private-canary" not in caplog.text
+
+
+def test_auth_copy_does_not_claim_password_is_wrong() -> None:
+    for path in (
+        Path("custom_components/energy_usage/strings.json"),
+        Path("custom_components/energy_usage/translations/en.json"),
+    ):
+        errors = json.loads(path.read_text())["config"]["error"]
+        assert "password" not in errors["invalid_auth"].lower()
+        assert "sign-in" in errors["invalid_auth"].lower()
+        assert "sign-in succeeded" in errors["account_access_denied"].lower()
 
 
 async def test_one_location_still_requires_explicit_review(
@@ -430,6 +500,25 @@ async def test_reauth_unconfirmed_no_export_preserves_credentials(hass: HomeAssi
     )
     assert result["step_id"] == "reauth_confirm"
     assert result["errors"] == {"confirm_no_export": "no_export_confirmation_required"}
+    assert entry.data == before
+
+
+async def test_reauth_accounts_rejection_preserves_credentials(
+    hass: HomeAssistant, provider_client: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    entry = common.MockConfigEntry(domain=DOMAIN, unique_id=PUBLIC, version=1, data=entry_data())
+    entry.add_to_hass(hass)
+    before = dict(entry.data)
+    error = AuthError(403)
+    error.operation = "accounts"
+    provider_client.authenticate.side_effect = error
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_REAUTH, "entry_id": entry.entry_id}, data=before
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], AUTH)
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": "account_access_denied"}
+    assert "operation=accounts category=auth http_status=403" in caplog.text
     assert entry.data == before
 
 
