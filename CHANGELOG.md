@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reject duplicate JSON keys and any login response that mixes a token with an unreviewed field or wrapper. This closes gaps where an unfamiliar MFA, CAPTCHA, or consent marker could be hidden or ignored. This does not add a way to complete Entergy's one-time-code challenge.
+
 ## [0.1.0-rc.2] — Release candidate
 
 - Show a specific setup error when the required no-export confirmation is missing, without attempting provider authentication. No provider transport or credential behavior changed.

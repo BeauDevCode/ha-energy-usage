@@ -258,10 +258,21 @@ def parse_login(payload: object) -> LoginResult:
                     pending.append(value)
         elif isinstance(source, list):
             pending.extend(source)
-    nested = _object(body["data"]) if "data" in body else {}
-    token = _pick_string(body, _TOKEN_ALIASES) or _pick_string(nested, _TOKEN_ALIASES)
-    if token is None:
+    # A successful login has exactly one token at the root or in a sole
+    # ``data`` wrapper. Any additional field could be an unknown challenge or
+    # schema change, so it must not be ignored just because a token is present.
+    if "data" in body:
+        if len(body) != 1:
+            raise PayloadError
+        token_source = _object(body["data"])
+    else:
+        token_source = body
+    if len(token_source) != 1:
         raise PayloadError
+    token_key = next(iter(token_source))
+    if token_key not in _TOKEN_ALIASES:
+        raise PayloadError
+    token = _nonempty_string(token_source[token_key])
     return LoginResult(access_token=token)
 
 

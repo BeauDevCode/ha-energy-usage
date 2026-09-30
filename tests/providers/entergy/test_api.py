@@ -583,6 +583,22 @@ async def test_token_plus_unknown_challenge_never_authenticates(
     assert attacker not in "".join(traceback.format_exception(caught.value)) + caplog.text
 
 
+async def test_duplicate_json_keys_cannot_hide_login_challenge(caplog: Any) -> None:
+    """Reject the raw response before a later duplicate key can replace a challenge."""
+    session = FakeSession(
+        FakeResponse({"clientId": "client"}),
+        FakeResponse(b'{"data":{"challenge":"MFA"},"data":{"token":"secret-token"}}'),
+        FakeResponse({"accounts": []}),
+    )
+    subject = client(session)
+    with pytest.raises(PayloadError) as caught:
+        await subject.async_get_accounts(api.RequestBudget())
+    assert not subject.authenticated
+    assert subject.access_token is None
+    assert [urlsplit(url).path for _, url, _ in session.calls] == ["/api/app", "/api/login"]
+    assert "secret-token" not in "".join(traceback.format_exception(caught.value)) + caplog.text
+
+
 @pytest.mark.parametrize("status", [401, 403])
 @pytest.mark.parametrize("operation", ["accounts", "account", "usage"])
 async def test_authenticated_operation_refreshes_once(status: int, operation: str) -> None:
