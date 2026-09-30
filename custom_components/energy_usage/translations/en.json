@@ -15,7 +15,8 @@
         "data": {
           "username": "Username",
           "password": "Password",
-          "language": "Language"
+          "language": "Language",
+          "confirm_no_export": "I confirm this service does not send energy back to the grid (no solar export or net metering)"
         }
       },
       "location": {
@@ -31,7 +32,8 @@
         "data": {
           "username": "Username",
           "password": "Password",
-          "language": "Language"
+          "language": "Language",
+          "confirm_no_export": "I confirm this service does not send energy back to the grid (no solar export or net metering)"
         }
       },
       "time_zone": {

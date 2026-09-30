@@ -22,7 +22,12 @@ from custom_components.energy_usage.providers.entergy import (
 def adapter() -> EntergyProvider:
     result = EntergyProvider(
         cast(aiohttp.ClientSession, object()),
-        {"username": "private-user", "password": "private-password", "language": "en"},
+        {
+            "username": "private-user",
+            "password": "private-password",
+            "language": "en",
+            "confirm_no_export": True,
+        },
     )
     result._client = AsyncMock()
     return result
@@ -118,6 +123,12 @@ async def test_challenge_error_never_echoes_auth_values() -> None:
         {"username": "", "password": "private-password"},
         {"username": "private-user", "password": ""},
         {"username": "private-user", "password": "private-password", "language": "fr"},
+        {"username": "private-user", "password": "private-password"},
+        {
+            "username": "private-user",
+            "password": "private-password",
+            "confirm_no_export": False,
+        },
     ],
 )
 def test_adapter_rejects_incomplete_or_unsupported_auth(auth: dict[str, str]) -> None:
@@ -156,6 +167,10 @@ async def test_adapter_rejects_unconfirmed_cursor_and_invalid_week() -> None:
 def test_registered_factory_builds_the_reviewed_adapter() -> None:
     result = ENTERGY_FACTORY.create(
         cast(aiohttp.ClientSession, object()),
-        {"username": "private-user", "password": "private-password"},
+        {
+            "username": "private-user",
+            "password": "private-password",
+            "confirm_no_export": True,
+        },
     )
     assert isinstance(result, EntergyProvider)

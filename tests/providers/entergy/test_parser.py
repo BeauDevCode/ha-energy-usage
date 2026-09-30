@@ -82,7 +82,7 @@ def test_account_aliases_masking_and_expected_identity() -> None:
 
 
 def test_usage_never_infers_return_compensation_or_currency_from_signed_values() -> None:
-    intervals = parse(fixture("weekly_usage.json"))
+    intervals = parse(usage(record("2026-09-27T10:00:00Z", "1.25", cost="0.22")))
     assert len(intervals) == 1
     assert intervals[0].start == datetime(2026, 9, 27, 10, tzinfo=UTC)
     assert intervals[0].end == datetime(2026, 9, 27, 11, tzinfo=UTC)
@@ -96,7 +96,8 @@ def test_usage_keeps_only_explicit_validated_cost_currency() -> None:
     interval = parse(usage(record("2026-09-27T10:00:00Z", 1, cost="0.22", currency="USD")))[0]
     assert interval.amount == Decimal("0.22")
     assert interval.currency == "USD"
-    assert parse(usage(record("2026-09-27T11:00:00Z", -1, cost="-0.03", currency="USD"))) == ()
+    with pytest.raises(PayloadError):
+        parse(usage(record("2026-09-27T11:00:00Z", -1, cost="-0.03", currency="USD")))
 
 
 @pytest.mark.parametrize("value", [True, False, float("nan"), float("inf"), "NaN", "Infinity"])
@@ -210,7 +211,6 @@ def test_usage_preserves_high_precision_and_tiny_finite_values() -> None:
         items = parse(
             usage(
                 record("2026-09-27T10:00:00Z", precise),
-                record("2026-09-27T11:00:00Z", "-" + precise),
                 record("2026-09-27T12:00:00Z", tiny),
             )
         )

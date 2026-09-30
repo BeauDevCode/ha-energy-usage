@@ -16,6 +16,7 @@ PROVIDER_SCHEMA_VERSION: Final = 1
 # Temporary legacy field names used until lifecycle generalization is complete.
 CONF_ACCOUNT_ID: Final = "account_id"
 CONF_LANGUAGE: Final = "language"
+CONF_NO_EXPORT: Final = "confirm_no_export"
 CONF_SCAN_INTERVAL_SECONDS: Final = "scan_interval_seconds"
 
 DEFAULT_LANGUAGE: Final = "en"

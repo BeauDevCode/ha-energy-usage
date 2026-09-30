@@ -12,6 +12,7 @@ from aiohttp import ClientSession
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import selector
 
+from ...const import CONF_NO_EXPORT
 from ...errors import PolicyError
 from ...models import (
     Account,
@@ -61,6 +62,7 @@ def _auth_schema() -> vol.Schema:
                     options=["en", "es"], mode=selector.SelectSelectorMode.DROPDOWN
                 )
             ),
+            vol.Required(CONF_NO_EXPORT, default=False): selector.BooleanSelector(),
         }
     )
 
@@ -81,6 +83,7 @@ class EntergyProvider:
             username = auth[CONF_USERNAME]
             password = auth[CONF_PASSWORD]
             language = auth.get(CONF_LANGUAGE, DEFAULT_LANGUAGE)
+            confirmed_no_export = auth[CONF_NO_EXPORT]
         except KeyError, TypeError:
             raise PolicyError from None
         if (
@@ -89,6 +92,7 @@ class EntergyProvider:
             or not isinstance(password, str)
             or not password
             or language not in {"en", "es"}
+            or confirmed_no_export is not True
         ):
             raise PolicyError from None
         self._client = EntergyApiClient(session, Credentials(username, password), language=language)

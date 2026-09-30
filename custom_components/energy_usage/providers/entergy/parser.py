@@ -359,11 +359,11 @@ def parse_usage(
             revision = hour.get("sourceRevision")
             if revision is not None:
                 revision = _nonempty_string(revision)
-            # Entergy exposes one signed net-usage field, not independent import
-            # and return series. A negative hour is therefore unknown for both
-            # gross directions and must not be converted into returned energy.
+            # The adapter accepts this field as imported energy only for a
+            # location whose user explicitly confirmed it cannot export. A
+            # negative value invalidates that safety condition and the page.
             if signed_usage < 0:
-                continue
+                raise PayloadError
             # Money is usable only when the source supplied its currency. A
             # negative signed cost is not a separate compensation measurement.
             if amount is None or amount < 0 or currency is None:

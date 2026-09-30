@@ -34,7 +34,12 @@ from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import selector
 from pytest_homeassistant_custom_component import common  # type: ignore[import-untyped]
 
-AUTH = {"username": "synthetic-user", "password": "synthetic-password", "language": "en"}
+AUTH = {
+    "username": "synthetic-user",
+    "password": "synthetic-password",
+    "language": "en",
+    "confirm_no_export": True,
+}
 PUBLIC = "a" * 32
 LOCATION = ProviderLocation("987654321", "Account ••••4321 (Cabin)", "America/Chicago")
 CAPABILITIES = ProviderCapabilities(
@@ -133,6 +138,8 @@ def test_password_selector_and_disclosure() -> None:
     assert isinstance(password, selector.TextSelector)
     assert password.config["type"] == selector.TextSelectorType.PASSWORD
     assert password.config["autocomplete"] == "current-password"
+    confirmation = next(value for key, value in schema.items() if key.schema == "confirm_no_export")
+    assert isinstance(confirmation, selector.BooleanSelector)
     strings = json.loads(Path("custom_components/energy_usage/strings.json").read_text())
     for step in ("auth", "reauth_confirm"):
         description = strings["config"]["step"][step]["description"].lower()
