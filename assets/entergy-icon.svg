@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title description">
-  <title>Generic electricity meter</title>
-  <desc>A white meter circle on a dark teal square with a bright yellow lightning bolt.</desc>
-  <rect width="256" height="256" rx="44" fill="#123D46"/>
-  <circle cx="128" cy="128" r="84" fill="none" stroke="#F2F7F5" stroke-width="15"/>
-  <path d="M119 70 L91 139 H124 L112 188 L166 116 H134 L150 70 Z" fill="#F7C94B"/>
-</svg>

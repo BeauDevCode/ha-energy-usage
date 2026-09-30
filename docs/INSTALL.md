@@ -1,15 +1,23 @@
 # Installation and updates
 
-**Release procedure only:** `1.0.0-rc.1` is currently an unreleased candidate. The live-install gate is closed until an exact reviewed release, checksum, attestation, and deployment approval exist. Never install a moving `main` or feature branch.
+**Release procedure only:** `0.1.0-rc.1` is an unpublished release candidate. Install only after the exact release archive, SHA-256 checksum, and GitHub artifact attestation have passed review. Never install a moving branch on a production system.
 
-Use Home Assistant 2026.9.3 or 2026.9.4 on Python 3.14. Before installation, verify that no other installed integration owns the `energy_usage` domain. Take a protected supported Home Assistant backup; it may contain the utility password. Review the exact release diff and archive checksum and record the release tag, commit, and SHA-256. Do not edit `.storage` or Recorder manually.
+Energy Usage supports Home Assistant 2026.9.3 and 2026.9.4 on Python 3.14. Version 1 supports one provider account and one service location. Before installation, verify that no installed integration already owns the `energy_usage` domain. Create a protected supported Home Assistant backup with the database included, record the release tag and commit, and keep the prior component tree for rollback.
 
-For HACS, add only the fork repository `https://github.com/BeauDevCode/ha-entergy` and select the exact reviewed release tag if HACS preserves that exact tag. If it cannot, use the manual archive procedure. Do not select a branch or an unreviewed commit.
+The successor uses `/config/custom_components/energy_usage/`. The older component uses `/config/custom_components/entergy_mobile/`. Never overwrite `custom_components/entergy_mobile/` with Energy Usage files. Do not run both integrations against the same utility account during transition, and do not edit `.storage` or Recorder manually.
 
-For a manual install, after publication download the [exact archive](https://github.com/BeauDevCode/ha-entergy/releases/download/v1.0.0-rc.1/ha-entergy-1.0.0-rc.1.zip) and [matching checksum](https://github.com/BeauDevCode/ha-entergy/releases/download/v1.0.0-rc.1/ha-entergy-1.0.0-rc.1.zip.sha256) from the **same reviewed release**. Verify with `sha256sum --check ha-entergy-1.0.0-rc.1.zip.sha256` (or a trusted equivalent). Inspect the archive: its only top-level tree must be `custom_components/energy_usage/`. Extract it under the Home Assistant config directory so the final path is `/config/custom_components/energy_usage/`.
+## HACS
 
-Run `ha core check`, schedule one restart, then use Settings → Devices & services to add or verify the integration through the local config flow. Check authentication, newest utility interval, last successful fetch, external statistics, repair issues, and a bounded window of sanitized logs. MFA and other unknown challenges require operator action; never disable account protection. The source is delayed and is not a live or bill-grade meter.
+After publication, add `https://github.com/BeauDevCode/ha-energy-usage` as a custom integration repository and select the exact reviewed release tag. If HACS cannot preserve the exact tag, use the manual archive procedure.
 
-In the Energy dashboard, select the imported external statistic for grid consumption and the returned external statistic for energy returned to grid after a verified import. Cost and compensation remain absent when source or Home Assistant currency is not USD; no conversion occurs.
+## Manual archive
 
-For updates, repeat the exact-release, backup, diff, checksum, `ha core check`, and one-restart sequence. Migration can change config-entry/registry identity, private ledger state, and external statistics; keep the pre-change supported backup and follow [rollback guidance](ROLLBACK.md) if needed. See [privacy details](PRIVACY.md).
+Download `ha-energy-usage-0.1.0-rc.1.zip` and its `.sha256` file from the same reviewed GitHub release. Verify the checksum with `sha256sum --check ha-energy-usage-0.1.0-rc.1.zip.sha256` or a trusted equivalent, then verify the artifact attestation against `BeauDevCode/ha-energy-usage`. Inspect the archive before extraction: its only top-level tree must be `custom_components/energy_usage/`.
+
+Extract under the Home Assistant config directory so the final path is `/config/custom_components/energy_usage/`. Preserve the existing Home Assistant file ownership convention. Run `ha core check`; if it fails, restore only the staged component tree and stop. If it passes, schedule one planned restart.
+
+After Home Assistant is healthy, add Energy Usage through Settings → Devices & services over a trusted local connection. Select Entergy, enter credentials privately, and select one returned service location. Never put credentials in shell history, chat, issue reports, repository files, or screenshots.
+
+Validate the config entry, newest interval, last successful fetch, freshness, provider capabilities, external statistics, repair issues, and a bounded sanitized startup log. Initial historical backfill is gradual. Do not claim the utility bill or full history matches until enough published intervals have been compared.
+
+For updates, repeat the exact-release review, protected backup, checksum, attestation, `ha core check`, and one planned restart. See [rollback](ROLLBACK.md) before replacing a version that may have written a newer ledger schema.

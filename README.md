@@ -1,15 +1,17 @@
-# Entergy Usage (Unofficial Hardened Fork)
+# Energy Usage
 
-![Generic electricity mark](assets/entergy-icon.svg)
+![Energy Usage icon](assets/energy-usage-icon.svg)
 
-This independent Home Assistant integration imports delayed whole-home Entergy utility intervals. It is unofficial and is not affiliated with, endorsed by, or supported by Entergy. It is not a live, real-time, or revenue-grade meter and is not bill-grade. The utility source can remain delayed even when polling more frequently; use the newest interval and last successful fetch timestamps to assess freshness.
+Energy Usage is an independent Home Assistant integration that imports delayed utility energy intervals through reviewed provider adapters. Release `0.1.0-rc.1` supports one provider account and one service location. Entergy is the only available provider in this first release.
 
-This unreleased `1.0.0-rc.1` candidate supports Home Assistant **2026.9.3 and 2026.9.4** on **Python 3.14**. Only one installed integration can own the `energy_usage` domain. Do not install this candidate on a production system until an exact reviewed release has been published and verified.
+Energy Usage is unofficial and is not affiliated with, endorsed by, or supported by any utility. Utility readings can arrive hours or days late. They are not live, real-time, revenue-grade, or bill-grade. Use the newest-interval and last-successful-fetch sensors to judge freshness.
 
-The default poll is four hours; options allow one through 24 hours. Normal reconciliation refetches 45 days. Historical backfill is bounded to 370 days and runs one weekly page every 30 minutes, at most two per hour and 48 per day. Its 53 pages normally take about 27 hours. The private canonical ledger retains at least 400 days of intervals plus baselines. Corrections can revise previously imported external Recorder statistics.
+The integration provides rolling consumption summaries and correction-aware external Recorder statistics for the Home Assistant Energy dashboard. Returned energy, cost, and compensation appear only when the active provider explicitly supports them. Money data is shown only when the provider currency matches the Home Assistant currency; no currency conversion or tariff estimate is invented.
 
-Imported and returned energy are separate external Recorder statistics for the Energy dashboard. Cost and compensation are separate, non-negative series exposed only if the source contract and Home Assistant currency are both USD. No currency conversion or inferred tariff is performed.
+Credentials are entered only through the trusted local Home Assistant config flow. They remain in the permission-protected config entry so Home Assistant can reconnect after a restart. That storage is not an encrypted password vault, and backups may contain the credentials. Interactive MFA, CAPTCHA, consent, and unknown challenges fail closed.
 
-Credentials are entered only through the trusted local Home Assistant config flow. The username and password remain in a permission-protected Home Assistant config entry, which is not an encrypted password vault; protect backups that may contain them. The access token remains in memory only. MFA, CAPTCHA, consent, and unknown login challenges fail closed. Never weaken utility-account security to make this integration work.
+The default update interval is four hours and can be set from one to 24 hours, subject to the provider minimum. Normal reconciliation revisits recent intervals, while bounded background backfill imports the provider's declared historical range. A private canonical ledger retains correction history and baselines without putting account numbers or addresses in entity IDs, statistics IDs, or diagnostics.
 
-See [installation and update procedures](docs/INSTALL.md), [privacy and retention](docs/PRIVACY.md), [rollback](docs/ROLLBACK.md), [security reporting](SECURITY.md), [contributing](CONTRIBUTING.md), [attribution](NOTICE.md), and the [changelog](CHANGELOG.md).
+This release candidate supports Home Assistant 2026.9.3 and 2026.9.4 on Python 3.14. It is not yet published. Do not install a moving branch on a production Home Assistant system.
+
+Read the [provider matrix](docs/PROVIDERS.md), [installation procedure](docs/INSTALL.md), [privacy model](docs/PRIVACY.md), [rollback procedure](docs/ROLLBACK.md), [security policy](SECURITY.md), [contribution guide](CONTRIBUTING.md), [attribution](NOTICE.md), and [changelog](CHANGELOG.md).

@@ -4,6 +4,8 @@ import ast
 import json
 from pathlib import Path
 
+from PIL import Image
+
 ROOT = Path(__file__).parents[1]
 COMPONENT = ROOT / "custom_components" / "energy_usage"
 MANIFEST = COMPONENT / "manifest.json"
@@ -51,3 +53,55 @@ def test_release_archive_policy_uses_only_generic_component_tree() -> None:
     assert "custom_components/energy_usage/" in workflow
     assert "custom_components/entergy_mobile/" not in workflow
     assert "ha-energy-usage-0.1.0-rc.1.zip" in workflow
+
+
+def test_public_documentation_describes_the_actual_release_and_limits() -> None:
+    required = {
+        "README.md",
+        "SECURITY.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "docs/PRIVACY.md",
+        "docs/PROVIDERS.md",
+        "docs/INSTALL.md",
+        "docs/ROLLBACK.md",
+    }
+    documents = {path: (ROOT / path).read_text() for path in required}
+    combined = "\n".join(documents.values())
+
+    assert "Energy Usage" in documents["README.md"]
+    assert "0.1.0-rc.1" in documents["README.md"]
+    assert "one service location" in combined
+    assert "not bill-grade" in combined
+    assert "delayed" in combined
+    assert "not an encrypted password vault" in combined
+    assert "Entergy is the only available provider" in documents["docs/PROVIDERS.md"]
+    assert "no release date" in documents["docs/PROVIDERS.md"]
+    assert "protected" in documents["docs/INSTALL.md"]
+    assert "ha core check" in documents["docs/INSTALL.md"]
+    assert "one planned restart" in documents["docs/INSTALL.md"]
+    assert "custom_components/energy_usage/" in documents["docs/INSTALL.md"]
+    assert "custom_components/entergy_mobile/" in documents["docs/INSTALL.md"]
+    assert "Never overwrite" in documents["docs/INSTALL.md"]
+    assert "does not delete Recorder history" in documents["docs/ROLLBACK.md"]
+
+    stale_public_identity = (
+        "github.com/BeauDevCode/ha-entergy/releases",
+        "ha-entergy-1.0.0-rc.1",
+        "# Entergy Usage",
+    )
+    assert not any(value in combined for value in stale_public_identity)
+
+
+def test_brand_assets_are_generic_and_well_formed() -> None:
+    svg_path = ROOT / "assets" / "energy-usage-icon.svg"
+    png_path = COMPONENT / "brand" / "icon.png"
+    svg = svg_path.read_text()
+    assert 'viewBox="0 0 256 256"' in svg
+    assert "Energy Usage" in svg
+    assert "Entergy" not in svg
+    with Image.open(png_path) as image:
+        assert image.format == "PNG"
+        assert image.mode == "RGBA"
+        assert image.size == (256, 256)
+        assert image.getbbox() == (0, 0, 256, 256)

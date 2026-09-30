@@ -1,7 +1,9 @@
 # Rollback
 
-Keep the exact prior reviewed archive, its recorded commit and SHA-256, and a protected pre-change supported Home Assistant backup. Never use a moving branch for rollback. Backups containing the utility password require an approved protection and recovery design.
+Keep the exact prior reviewed archive, its commit and SHA-256, the prior component tree, and a protected pre-change supported Home Assistant backup. Backups can contain provider credentials.
 
-Disable or unload the integration through supported Home Assistant controls. Restore the exact prior `custom_components/energy_usage/` tree, or restore the supported backup when the prior code cannot understand migrated state. Run `ha core check`, schedule one restart, then make bounded checks of authentication, freshness, external statistics, repairs, and sanitized logs.
+Unload Energy Usage through supported Home Assistant controls. Restore the exact prior `/config/custom_components/energy_usage/` tree, or restore the supported backup if the older code cannot understand the current config entry or ledger schema. Run `ha core check`, perform one planned restart, and verify authentication, freshness, statistics, repairs, and a bounded sanitized log.
 
-Replacing Python files alone does not reverse config-entry or registry migration, external Recorder statistics, or ledger schema changes. Preserve Recorder history by default. Never delete statistics, the private ledger, `.storage` entries, or SQLite rows as a routine rollback step. Any historical-statistics removal is a separate deliberate Home Assistant action. See [installation](INSTALL.md) and [privacy](PRIVACY.md).
+Replacing Python files does not reverse config-entry migrations, entity-registry changes, private ledger changes, or external statistics already written to Recorder. Removing Energy Usage does not delete Recorder history. Preserve that history by default. Never delete private ledgers, `.storage` records, Recorder tables, or statistics as a routine rollback step; any historical deletion is a separate deliberate Home Assistant operation.
+
+If transitioning from the older `entergy_mobile` component, restore its exact saved tree only to its own directory. Never copy Energy Usage files over that directory, and never run both integrations against the same account at once.
