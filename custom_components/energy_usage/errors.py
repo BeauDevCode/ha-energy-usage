@@ -70,6 +70,10 @@ class PolicyError(EnergyUsageError):
         super().__init__(ErrorCategory.POLICY)
 
 
+class NoExportConfirmationError(PolicyError):
+    """The location's no-export requirement was not confirmed."""
+
+
 class LedgerError(EnergyUsageError):
     """Persisted ledger data failed validation."""
 
