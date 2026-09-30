@@ -186,6 +186,19 @@ async def test_zero_locations_returns_visible_error(
     provider_client.async_logout.assert_awaited_once()
 
 
+async def test_unconfirmed_no_export_shows_field_error(hass: HomeAssistant) -> None:
+    result = await start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PROVIDER_KEY: "entergy"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**AUTH, "confirm_no_export": False}
+    )
+    assert result["step_id"] == "auth"
+    assert result["errors"] == {"confirm_no_export": "no_export_confirmation_required"}
+    assert not hass.config_entries.async_entries(DOMAIN)
+
+
 async def test_one_location_still_requires_explicit_review(
     hass: HomeAssistant, provider_client: AsyncMock
 ) -> None:
@@ -401,6 +414,23 @@ async def test_reauth_errors_preserve_existing_credentials(
     assert result["errors"] == {"base": reason}
     assert entry.data == before
     assert "private-canary" not in repr(result)
+
+
+async def test_reauth_unconfirmed_no_export_preserves_credentials(hass: HomeAssistant) -> None:
+    entry = common.MockConfigEntry(domain=DOMAIN, unique_id=PUBLIC, version=1, data=entry_data())
+    entry.add_to_hass(hass)
+    before = dict(entry.data)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": entry.entry_id},
+        data=before,
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**AUTH, "confirm_no_export": False}
+    )
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"confirm_no_export": "no_export_confirmation_required"}
+    assert entry.data == before
 
 
 @pytest.mark.parametrize(("old", "expected"), [(None, 14400), (60, 7200), (10800, 10800)])

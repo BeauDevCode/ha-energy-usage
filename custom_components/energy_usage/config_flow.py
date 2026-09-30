@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .const import (
     CONF_AUTH,
     CONF_LOCATION_PUBLIC_ID,
+    CONF_NO_EXPORT,
     CONF_PRIVATE_LOCATION_ID,
     CONF_PROVIDER_KEY,
     CONF_SCAN_INTERVAL_SECONDS,
@@ -33,7 +34,7 @@ from .const import (
     MIN_SCAN_INTERVAL_SECONDS,
     PROVIDER_SCHEMA_VERSION,
 )
-from .errors import AuthError, ChallengeError, EnergyUsageError
+from .errors import AuthError, ChallengeError, EnergyUsageError, NoExportConfirmationError
 from .models import ProviderDescriptor, ProviderLocation
 from .provider import (
     RequestBudget,
@@ -163,6 +164,8 @@ class EnergyUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except ValueError:
                 errors["base"] = "invalid_location"
+            except NoExportConfirmationError:
+                errors[CONF_NO_EXPORT] = "no_export_confirmation_required"
             except EnergyUsageError, ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:
@@ -300,6 +303,8 @@ class EnergyUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except ValueError:
                 errors["base"] = "invalid_location"
+            except NoExportConfirmationError:
+                errors[CONF_NO_EXPORT] = "no_export_confirmation_required"
             except EnergyUsageError, ClientError:
                 errors["base"] = "cannot_connect"
             except Exception:

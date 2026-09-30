@@ -46,6 +46,7 @@
     },
     "error": {
       "cannot_connect": "Unable to connect to the energy provider.",
+      "no_export_confirmation_required": "Confirm this service does not export energy to the grid. Solar export and net metering are not supported in this release.",
       "invalid_auth": "Invalid username or password.",
       "unsupported_challenge": "The provider requires an interactive login step that this integration cannot complete. Keep account security enabled.",
       "no_locations": "Login worked, but no service locations were returned.",

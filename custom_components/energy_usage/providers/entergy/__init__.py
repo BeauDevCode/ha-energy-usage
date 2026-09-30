@@ -13,7 +13,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import selector
 
 from ...const import CONF_NO_EXPORT
-from ...errors import PolicyError
+from ...errors import NoExportConfirmationError, PolicyError
 from ...models import (
     Account,
     Credentials,
@@ -92,9 +92,10 @@ class EntergyProvider:
             or not isinstance(password, str)
             or not password
             or language not in {"en", "es"}
-            or confirmed_no_export is not True
         ):
             raise PolicyError from None
+        if confirmed_no_export is not True:
+            raise NoExportConfirmationError from None
         self._client = EntergyApiClient(session, Credentials(username, password), language=language)
         self._location_time_zones: dict[str, str] = {}
 
