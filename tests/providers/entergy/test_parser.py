@@ -68,6 +68,12 @@ def test_login_rejects_token_with_unreviewed_response_fields(payload: object) ->
         parse_login(payload)
 
 
+@pytest.mark.parametrize("payload", [{"unknown": "token"}, {"data": {"otp": "token"}}])
+def test_login_rejects_unreviewed_token_keys(payload: object) -> None:
+    with pytest.raises(PayloadError):
+        parse_login(payload)
+
+
 def test_account_aliases_masking_and_expected_identity() -> None:
     assert parse_accounts(fixture("accounts.json"))[0].account_id == "0001234567"
     for alias in ("accountId", "accountID", "account_id", "accountNumber", "account_number"):
