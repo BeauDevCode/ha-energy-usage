@@ -69,6 +69,8 @@ async def test_locations_are_masked_and_confirmed() -> None:
 
 async def test_fetch_maps_weekly_usage_to_complete_interval_page() -> None:
     result = adapter()
+    result._client.async_get_account.return_value = Account("0001234567", "Home", "America/Chicago")
+    await result.async_confirm_location("0001234567", RequestBudget())
     start = datetime(2026, 9, 1, tzinfo=UTC)
     interval = EnergyInterval(
         start=start,

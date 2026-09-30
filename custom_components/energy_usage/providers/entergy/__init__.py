@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import voluptuous as vol
 from aiohttp import ClientSession
@@ -96,60 +97,52 @@ class EntergyProvider:
         ):
             raise PolicyError from None
         self._client = EntergyApiClient(session, Credentials(username, password), language=language)
+        self._location_time_zones: dict[str, str] = {}
 
     async def authenticate(self, budget: RequestBudget) -> None:
         await self._client.async_initialize(budget)
         await self._client.async_login(budget)
 
     async def async_list_locations(self, budget: RequestBudget) -> tuple[ProviderLocation, ...]:
-        return tuple(
+        locations = tuple(
             _location(account) for account in await self._client.async_get_accounts(budget)
         )
+        self._location_time_zones.update(
+            (location.private_id, location.time_zone)
+            for location in locations
+            if location.time_zone is not None
+        )
+        return locations
 
     async def async_confirm_location(
         self, private_location_id: str, budget: RequestBudget
     ) -> ProviderLocation:
-        return _location(await self._client.async_get_account(private_location_id, budget))
+        location = _location(await self._client.async_get_account(private_location_id, budget))
+        if location.time_zone is not None:
+            self._location_time_zones[private_location_id] = location.time_zone
+        return location
 
     async def async_fetch_intervals(
         self, request: IntervalRequest, budget: RequestBudget
     ) -> IntervalPage:
-        if request.end - request.start > timedelta(days=7) or request.cursor is not None:
+        time_zone = self._location_time_zones.get(request.private_location_id)
+        if time_zone is None or request.cursor is not None:
+            raise PolicyError from None
+        zone = ZoneInfo(time_zone)
+        start = request.start.astimezone(zone).date()
+        end = request.end.astimezone(zone).date()
+        if not 1 <= (end - start).days <= 7:
             raise PolicyError from None
         intervals = await self._client.async_get_weekly_usage(
-            request.private_location_id, request.start.date(), budget
+            request.private_location_id,
+            start,
+            budget,
+            fallback_time_zone=time_zone,
         )
         return IntervalPage(intervals=intervals)
 
     async def async_logout(self, budget: RequestBudget) -> None:
         await self._client.async_logout(budget)
-
-    # Temporary bridge for the existing coordinator. Task 6 replaces these
-    # provider-specific calls with async_confirm_location/async_fetch_intervals.
-    @property
-    def authenticated(self) -> bool:
-        return self._client.authenticated
-
-    def clear_token(self) -> None:
-        self._client.clear_token()
-
-    async def async_get_account(self, private_location_id: str, budget: RequestBudget) -> Account:
-        return await self._client.async_get_account(private_location_id, budget)
-
-    async def async_get_weekly_usage(
-        self,
-        private_location_id: str,
-        start: Any,
-        budget: RequestBudget,
-        *,
-        fallback_time_zone: str,
-    ) -> tuple[Any, ...]:
-        return await self._client.async_get_weekly_usage(
-            private_location_id,
-            start,
-            budget,
-            fallback_time_zone=fallback_time_zone,
-        )
 
 
 def _create(session: ClientSession, auth: Mapping[str, Any]) -> EntergyProvider:

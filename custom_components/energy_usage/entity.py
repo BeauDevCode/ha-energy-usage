@@ -6,17 +6,17 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .coordinator import EntergyDataUpdateCoordinator
+from .coordinator import EnergyUsageDataUpdateCoordinator
 
 
-class EnergyUsageEntity(CoordinatorEntity[EntergyDataUpdateCoordinator]):
+class EnergyUsageEntity(CoordinatorEntity[EnergyUsageDataUpdateCoordinator]):
     """Base entity for one pseudonymous service location."""
 
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: EntergyDataUpdateCoordinator,
+        coordinator: EnergyUsageDataUpdateCoordinator,
         public_id: str,
     ) -> None:
         super().__init__(coordinator)

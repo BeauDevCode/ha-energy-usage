@@ -14,7 +14,14 @@ from custom_components.energy_usage.const import DOMAIN
 from custom_components.energy_usage.errors import EnergyUsageError, ErrorCategory, PayloadError
 from custom_components.energy_usage.issues import RepairKind
 from custom_components.energy_usage.ledger import LedgerRepairError, LedgerRepairKind
-from custom_components.energy_usage.models import Freshness, LedgerState, UsageSnapshot
+from custom_components.energy_usage.models import (
+    Freshness,
+    LedgerState,
+    ProviderLocation,
+    UsageSnapshot,
+)
+from custom_components.energy_usage.provider import IntervalPage
+from custom_components.energy_usage.providers.entergy import ENTERGY_CAPABILITIES
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import HomeAssistant
@@ -77,9 +84,15 @@ def entry(hass: HomeAssistant, *, initialized: bool = False) -> Any:
 def fakes(*, revision: int = 1) -> tuple[Mock, Mock, Mock]:
     """Return client, ledger, and coordinator doubles at public boundaries."""
     client = Mock()
+    client.capabilities = ENTERGY_CAPABILITIES
     client.authenticated = True
     client.async_logout = AsyncMock()
-    client.clear_token = Mock()
+    client.async_confirm_location = AsyncMock(
+        return_value=ProviderLocation(
+            "private-location-canary", "Location ••••0001", "America/Chicago"
+        )
+    )
+    client.async_fetch_intervals = AsyncMock(return_value=IntervalPage(()))
     ledger = Mock()
     ledger.state = LedgerState(schema_version=2, revision=revision)
     coordinator = Mock()
@@ -117,7 +130,7 @@ async def test_migration_guard_precedes_all_runtime_creation(hass: HomeAssistant
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=False)),
         patch.object(integration, "EnergyLedger") as ledger,
         patch.object(integration, "create_provider") as client,
-        patch.object(integration, "EntergyDataUpdateCoordinator") as coordinator,
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator") as coordinator,
         pytest.raises(ConfigEntryNotReady, match="ledger_repair"),
     ):
         await integration.async_setup_entry(hass, item)
@@ -166,7 +179,7 @@ async def test_setup_orders_local_load_refresh_runtime_platforms_issues_and_back
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_update_entry", side_effect=update),
         patch.object(hass.config_entries, "async_forward_entry_setups", side_effect=forward),
         patch.object(
@@ -205,7 +218,7 @@ async def test_local_ledger_failure_creates_matching_persistent_issue_before_net
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match=kind.value),
     ):
         await integration.async_setup_entry(hass, item)
@@ -213,7 +226,6 @@ async def test_local_ledger_failure_creates_matching_persistent_issue_before_net
     issue = ir.async_get(hass).async_get_issue(DOMAIN, f"{kind.value}_{PUBLIC_ID}")
     assert issue is not None and issue.is_persistent
     coordinator.async_shutdown.assert_awaited_once()
-    client.clear_token.assert_called_once()
 
 
 async def test_revision_zero_never_marks_initialized_or_starts_backfill(
@@ -225,7 +237,7 @@ async def test_revision_zero_never_marks_initialized_or_starts_backfill(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match="ledger_corrupt"),
     ):
         await integration.async_setup_entry(hass, item)
@@ -242,7 +254,7 @@ async def test_initialization_marker_deferral_never_starts_backfill(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_update_entry"),
         pytest.raises(ConfigEntryNotReady, match="ledger_corrupt"),
     ):
@@ -269,7 +281,7 @@ async def test_initial_refresh_failure_surfaces_safe_actionable_issue(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match=condition),
     ):
         await integration.async_setup_entry(hass, item)
@@ -299,12 +311,11 @@ async def test_first_refresh_preserves_safe_setup_failure_mapping(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(error_type, match=category),
     ):
         await integration.async_setup_entry(hass, item)
     coordinator.async_shutdown.assert_awaited_once()
-    client.clear_token.assert_called_once()
     assert "private-user-canary" not in caplog.text
 
 
@@ -321,7 +332,7 @@ async def test_transient_initial_refresh_preserves_existing_repair_issue(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match="transient"),
     ):
         await integration.async_setup_entry(hass, item)
@@ -346,7 +357,7 @@ async def test_verified_local_load_resolves_only_local_ledger_repairs(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match="transient"),
     ):
         await integration.async_setup_entry(hass, item)
@@ -373,7 +384,7 @@ async def test_unverified_first_payload_keeps_specific_repair_classification(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         pytest.raises(ConfigEntryNotReady, match=condition),
     ):
         await integration.async_setup_entry(hass, item)
@@ -398,8 +409,12 @@ async def test_real_coordinator_transient_startup_preserves_prior_repairs(
     item = entry(hass, initialized=True)
     client, ledger, _ = fakes()
     ledger.async_load = AsyncMock(return_value=ledger.state)
-    client.async_get_account = AsyncMock()
-    client.async_get_weekly_usage = AsyncMock(side_effect=EnergyUsageError(ErrorCategory.TRANSIENT))
+    client.async_confirm_location = AsyncMock(
+        return_value=ProviderLocation(
+            "private-location-canary", "Location ••••0001", "America/Chicago"
+        )
+    )
+    client.async_fetch_intervals = AsyncMock(side_effect=EnergyUsageError(ErrorCategory.TRANSIENT))
     create_issue(hass, PUBLIC_ID, kind)
     with (
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
@@ -416,8 +431,12 @@ async def test_real_coordinator_new_schema_drift_is_not_ledger_corruption(
     item = entry(hass)
     client, ledger, _ = fakes(revision=0)
     ledger.async_load = AsyncMock(return_value=ledger.state)
-    client.async_get_account = AsyncMock()
-    client.async_get_weekly_usage = AsyncMock(side_effect=PayloadError())
+    client.async_confirm_location = AsyncMock(
+        return_value=ProviderLocation(
+            "private-location-canary", "Location ••••0001", "America/Chicago"
+        )
+    )
+    client.async_fetch_intervals = AsyncMock(side_effect=PayloadError())
     with (
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
@@ -438,8 +457,12 @@ async def test_real_coordinator_unverified_schema_keeps_prior_utility_repairs(
     item = entry(hass, initialized=True)
     client, ledger, _ = fakes()
     ledger.async_load = AsyncMock(return_value=ledger.state)
-    client.async_get_account = AsyncMock()
-    client.async_get_weekly_usage = AsyncMock(side_effect=PayloadError())
+    client.async_confirm_location = AsyncMock(
+        return_value=ProviderLocation(
+            "private-location-canary", "Location ••••0001", "America/Chicago"
+        )
+    )
+    client.async_fetch_intervals = AsyncMock(side_effect=PayloadError())
     for kind in (RepairKind.CURRENCY_MISMATCH, RepairKind.DATA_RETRACTION):
         create_issue(hass, PUBLIC_ID, kind)
     with (
@@ -478,7 +501,7 @@ async def test_runtime_issue_listener_reconciles_only_observed_conditions(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
     ):
         assert await integration.async_setup_entry(hass, item)
@@ -514,7 +537,7 @@ async def test_runtime_issue_deletion_waits_for_verified_fetch(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
     ):
         assert await integration.async_setup_entry(hass, item)
@@ -537,7 +560,7 @@ async def test_runtime_issue_deletion_waits_for_verified_fetch(
         assert registry.async_get_issue(DOMAIN, f"{kind.value}_{PUBLIC_ID}") is None
 
 
-async def test_successful_unload_stops_work_before_bounded_logout_and_clear(
+async def test_successful_unload_stops_work_before_bounded_logout(
     hass: HomeAssistant,
 ) -> None:
     item = entry(hass, initialized=True)
@@ -546,13 +569,12 @@ async def test_successful_unload_stops_work_before_bounded_logout_and_clear(
     events: list[str] = []
     coordinator.async_shutdown.side_effect = lambda: events.append("shutdown")
     client.async_logout.side_effect = lambda budget: events.append(f"logout:{budget.limit}")
-    client.clear_token.side_effect = lambda: events.append("clear")
     with patch.object(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True)):
         assert await integration.async_unload_entry(hass, item)
-    assert events == ["shutdown", "logout:12", "clear"]
+    assert events == ["shutdown", "logout:12"]
 
 
-async def test_logout_failure_is_best_effort_and_still_clears_token(
+async def test_logout_failure_is_best_effort(
     hass: HomeAssistant,
 ) -> None:
     item = entry(hass, initialized=True)
@@ -563,7 +585,6 @@ async def test_logout_failure_is_best_effort_and_still_clears_token(
         assert await integration.async_unload_entry(hass, item)
     coordinator.async_shutdown.assert_awaited_once()
     client.async_logout.assert_awaited_once()
-    client.clear_token.assert_called_once()
 
 
 @pytest.mark.parametrize("boundary", ["shutdown", "logout"])
@@ -594,7 +615,6 @@ async def test_unload_cancellation_preserves_worker_before_auth_cleanup_order(
 
     coordinator.async_shutdown.side_effect = shutdown
     client.async_logout.side_effect = logout
-    client.clear_token.side_effect = lambda: events.append("clear")
     with patch.object(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True)):
         unload = asyncio.create_task(integration.async_unload_entry(hass, item))
         await started.wait()
@@ -607,7 +627,6 @@ async def test_unload_cancellation_preserves_worker_before_auth_cleanup_order(
         "shutdown-done",
         "logout-start",
         "logout-done",
-        "clear",
     ]
 
 
@@ -620,7 +639,6 @@ async def test_failed_platform_unload_leaves_runtime_untouched(hass: HomeAssista
         assert not await integration.async_unload_entry(hass, item)
     coordinator.async_shutdown.assert_not_awaited()
     client.async_logout.assert_not_awaited()
-    client.clear_token.assert_not_called()
     assert item.runtime_data is runtime
 
 
@@ -651,7 +669,7 @@ async def test_core_managed_setup_holds_setup_state_through_refresh_and_forward(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", side_effect=forward),
     ):
         assert await hass.config_entries.async_setup(item.entry_id)
@@ -669,7 +687,7 @@ async def test_core_managed_post_assignment_failure_removes_runtime_and_stops_wo
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
         patch.object(
             hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True)
@@ -680,7 +698,6 @@ async def test_core_managed_post_assignment_failure_removes_runtime_and_stops_wo
     assert not hasattr(item, "runtime_data")
     unload.assert_awaited_once()
     coordinator.async_shutdown.assert_awaited_once()
-    client.clear_token.assert_called_once()
     coordinator.async_start_backfill.assert_awaited_once()
 
 
@@ -710,7 +727,7 @@ async def test_cancellation_during_failed_setup_cleanup_finishes_private_cleanup
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
         patch.object(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True)),
     ):
@@ -721,7 +738,6 @@ async def test_cancellation_during_failed_setup_cleanup_finishes_private_cleanup
         with pytest.raises(asyncio.CancelledError):
             await setup
     assert shutdown_worker is not None and shutdown_worker.done()
-    client.clear_token.assert_called_once()
     assert not hasattr(item, "runtime_data")
 
 
@@ -744,7 +760,7 @@ async def test_cancellation_during_failed_setup_logout_still_deletes_runtime(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
         patch.object(hass.config_entries, "async_unload_platforms", AsyncMock(return_value=True)),
     ):
@@ -754,7 +770,6 @@ async def test_cancellation_during_failed_setup_logout_still_deletes_runtime(
         logout_release.set()
         with pytest.raises(asyncio.CancelledError):
             await setup
-    client.clear_token.assert_called_once()
     assert not hasattr(item, "runtime_data")
 
 
@@ -767,7 +782,7 @@ async def test_core_managed_platform_forward_failure_removes_runtime(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(
             hass.config_entries,
             "async_forward_entry_setups",
@@ -783,7 +798,6 @@ async def test_core_managed_platform_forward_failure_removes_runtime(
     unload.assert_awaited_once()
     coordinator.async_shutdown.assert_awaited_once()
     coordinator.async_start_backfill.assert_not_awaited()
-    client.clear_token.assert_called_once()
 
 
 async def test_core_managed_failed_unload_retains_runtime(
@@ -795,7 +809,7 @@ async def test_core_managed_failed_unload_retains_runtime(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
     ):
         assert await hass.config_entries.async_setup(item.entry_id)
@@ -815,7 +829,7 @@ async def test_core_managed_successful_unload_deletes_runtime(hass: HomeAssistan
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()),
     ):
         assert await hass.config_entries.async_setup(item.entry_id)
@@ -825,7 +839,6 @@ async def test_core_managed_successful_unload_deletes_runtime(hass: HomeAssistan
     assert not hasattr(item, "runtime_data")
     coordinator.async_shutdown.assert_awaited_once()
     client.async_logout.assert_awaited_once()
-    client.clear_token.assert_called_once()
 
 
 async def test_runtime_repair_is_active_after_issue_registry_reload(

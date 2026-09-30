@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from custom_components.energy_usage import coordinator as module
@@ -20,12 +21,14 @@ from custom_components.energy_usage.errors import (
     RateLimitError,
 )
 from custom_components.energy_usage.models import (
-    Account,
     EnergyInterval,
     Freshness,
     LedgerMutation,
     LedgerState,
+    ProviderCapabilities,
+    ProviderLocation,
 )
+from custom_components.energy_usage.provider import IntervalPage, IntervalRequest
 from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
@@ -35,7 +38,28 @@ from pytest_homeassistant_custom_component import common  # type: ignore[import-
 NOW = datetime(2026, 9, 28, 12, tzinfo=UTC)
 PUBLIC_ID = "a" * 32
 ACCOUNT_ID = "synthetic-account"
-CREATED: list[module.EntergyDataUpdateCoordinator] = []
+CREATED: list[module.EnergyUsageDataUpdateCoordinator] = []
+
+
+def capabilities(
+    *,
+    supports_return: bool = True,
+    supports_cost: bool = True,
+    supports_compensation: bool = True,
+    currency: str | None = "USD",
+    minimum_poll_interval: timedelta = timedelta(hours=1),
+) -> ProviderCapabilities:
+    return ProviderCapabilities(
+        supports_import=True,
+        supports_return=supports_return,
+        supports_cost=supports_cost,
+        supports_compensation=supports_compensation,
+        currency=currency,
+        interval_duration=timedelta(hours=1),
+        publication_delay=timedelta(hours=6),
+        historical_range=timedelta(days=370),
+        minimum_poll_interval=minimum_poll_interval,
+    )
 
 
 def interval(
@@ -140,7 +164,7 @@ class FakeLedger:
         return LedgerMutation(self._state)
 
 
-class FakeClient:
+class FakeProvider:
     def __init__(
         self,
         pages: tuple[EnergyInterval, ...] = (),
@@ -149,7 +173,9 @@ class FakeClient:
         failures: list[Exception | None] | None = None,
         consume_cold: bool = False,
         recovery_attempts: int = 0,
+        provider_capabilities: ProviderCapabilities | None = None,
     ) -> None:
+        self.capabilities = provider_capabilities or capabilities()
         self.pages = pages
         self.failure = failure
         self.failures = list(failures or [])
@@ -157,32 +183,35 @@ class FakeClient:
         self.recovery_attempts = recovery_attempts
         self.account_time_zone: str | None = None
         self.calls: list[tuple[str, object, object]] = []
-        self.fallback_zones: list[str] = []
+        self.requests: list[IntervalRequest] = []
         self.active = 0
         self.max_active = 0
         self.block: asyncio.Event | None = None
         self.release: asyncio.Event | None = None
 
-    async def async_get_account(self, account_id: str, budget: Any) -> Account:
-        self.calls.append(("account", account_id, budget))
+    async def async_confirm_location(
+        self, private_location_id: str, budget: Any
+    ) -> ProviderLocation:
+        self.calls.append(("account", private_location_id, budget))
         if self.consume_cold:
             for _ in range(3):
                 budget.consume()
             self.consume_cold = False
         else:
             budget.consume()
-        return Account(account_id, time_zone=self.account_time_zone)
+        return ProviderLocation(
+            private_location_id,
+            "Location ••••0001",
+            self.account_time_zone,
+        )
 
-    async def async_get_weekly_usage(
+    async def async_fetch_intervals(
         self,
-        account_id: str,
-        start_date: date,
+        request: IntervalRequest,
         budget: Any,
-        *,
-        fallback_time_zone: str,
-    ) -> tuple[EnergyInterval, ...]:
-        self.calls.append(("page", start_date, budget))
-        self.fallback_zones.append(fallback_time_zone)
+    ) -> IntervalPage:
+        self.requests.append(request)
+        self.calls.append(("page", request.start.date(), budget))
         budget.consume()
         if self.recovery_attempts:
             for _ in range(self.recovery_attempts):
@@ -201,7 +230,7 @@ class FakeClient:
                     raise failure
             if self.failure is not None:
                 raise self.failure
-            return self.pages
+            return IntervalPage(self.pages)
         finally:
             self.active -= 1
 
@@ -242,14 +271,14 @@ def entry(
 
 def coordinator(
     hass: HomeAssistant,
-    client: FakeClient,
+    client: FakeProvider,
     ledger: FakeLedger,
     *,
     clock: FakeClock | None = None,
     jitter: Callable[[], float] | None = None,
     config_entry: Any | None = None,
-) -> module.EntergyDataUpdateCoordinator:
-    subject = module.EntergyDataUpdateCoordinator(
+) -> module.EnergyUsageDataUpdateCoordinator:
+    subject = module.EnergyUsageDataUpdateCoordinator(
         hass,
         config_entry or entry(hass),
         client,
@@ -294,7 +323,7 @@ async def test_initialize_is_local_only_and_does_not_flip_entry_marker(
     hass: HomeAssistant,
 ) -> None:
     config_entry = entry(hass, initialized=False)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     ledger = FakeLedger(LedgerState(schema_version=2, intervals=(interval(),)))
     subject = coordinator(hass, client, ledger, config_entry=config_entry)
     await subject.async_initialize()
@@ -307,7 +336,7 @@ async def test_initialize_is_local_only_and_does_not_flip_entry_marker(
 async def test_normal_sync_fetches_seven_pages_in_one_shared_budget_and_one_ingest(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient((interval(),), consume_cold=True)
+    client = FakeProvider((interval(),), consume_cold=True)
     ledger = FakeLedger()
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
@@ -332,7 +361,7 @@ async def test_normal_sync_fetches_seven_pages_in_one_shared_budget_and_one_inge
 async def test_confirmed_account_zone_controls_same_chain_dates_and_later_fallback(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient()
+    client = FakeProvider()
     client.account_time_zone = "America/Los_Angeles"
     config_entry = entry(hass)
     subject = coordinator(
@@ -345,17 +374,20 @@ async def test_confirmed_account_zone_controls_same_chain_dates_and_later_fallba
     await subject.async_initialize()
     await subject._async_update_data()
     assert [call[1] for call in client.calls if call[0] == "page"][-1] == date(2026, 9, 25)
-    assert client.fallback_zones == ["America/Los_Angeles"] * 7
+    assert all(
+        request.start.astimezone(ZoneInfo("America/Los_Angeles")).hour == 0
+        for request in client.requests
+    )
     assert config_entry.data["time_zone"] == "America/Chicago"
     client.account_time_zone = None
     await subject._async_update_data()
-    assert client.fallback_zones == ["America/Los_Angeles"] * 14
+    assert len(client.requests) == 14
 
 
 async def test_confirmed_account_zone_controls_first_backfill_page(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient()
+    client = FakeProvider()
     client.account_time_zone = "America/Los_Angeles"
     subject = coordinator(
         hass, client, FakeLedger(), clock=FakeClock(datetime(2026, 9, 28, 5, 30, tzinfo=UTC))
@@ -363,13 +395,13 @@ async def test_confirmed_account_zone_controls_first_backfill_page(
     await subject.async_initialize()
     assert await subject.async_run_backfill_once()
     assert [call[1] for call in client.calls if call[0] == "page"] == [date(2026, 9, 21)]
-    assert client.fallback_zones == ["America/Los_Angeles"]
+    assert client.requests[0].start.astimezone(ZoneInfo("America/Los_Angeles")).hour == 0
 
 
 async def test_normal_chain_leaves_exact_budget_for_one_auth_recovery(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient(consume_cold=True, recovery_attempts=2)
+    client = FakeProvider(consume_cold=True, recovery_attempts=2)
     subject = coordinator(hass, client, FakeLedger())
     await subject.async_initialize()
     await subject._async_update_data()
@@ -381,7 +413,7 @@ async def test_empty_first_success_still_persists_verified_initial_revision(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     ledger = FakeLedger()
-    subject = coordinator(hass, FakeClient(), ledger)
+    subject = coordinator(hass, FakeProvider(), ledger)
     await subject.async_initialize()
     await subject._async_update_data()
     assert len(ledger.ingests) == 1
@@ -393,7 +425,7 @@ async def test_page_failure_is_atomic_and_keeps_prior_snapshot(
 ) -> None:
     original = interval(NOW - timedelta(days=2), energy="3")
     ledger = FakeLedger(LedgerState(schema_version=2, intervals=(original,)))
-    client = FakeClient((interval(),), failures=[None, EnergyUsageError(ErrorCategory.TRANSIENT)])
+    client = FakeProvider((interval(),), failures=[None, EnergyUsageError(ErrorCategory.TRANSIENT)])
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     before = subject.data
@@ -408,7 +440,7 @@ async def test_candidate_persists_statistics_intent_before_queue(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = FakeLedger()
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     observed: list[tuple[datetime | None, str | None]] = []
@@ -446,13 +478,13 @@ async def test_pending_statistics_are_processed_before_utility_calls(
         statistics_pending_from=interval().start,
     )
     ledger = FakeLedger(state)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     order: list[str] = []
-    original_get = client.async_get_account
+    original_get = client.async_confirm_location
 
-    async def account(*args: Any, **kwargs: Any) -> Account:
+    async def account(*args: Any, **kwargs: Any) -> ProviderLocation:
         order.append("account")
         return await original_get(*args, **kwargs)
 
@@ -464,7 +496,7 @@ async def test_pending_statistics_are_processed_before_utility_calls(
         order.append("queue")
         return object()
 
-    client.async_get_account = account  # type: ignore[method-assign]
+    client.async_confirm_location = account  # type: ignore[method-assign]
     monkeypatch.setattr(module, "async_verify_queued_statistics", verify)
     monkeypatch.setattr(module, "async_queue_external_statistics", queue)
     await subject._async_update_data()
@@ -484,7 +516,7 @@ async def test_pending_fingerprint_mismatch_fails_closed_before_utility(
             statistics_pending_fingerprint="f" * 64,
         )
     )
-    client = FakeClient((record,))
+    client = FakeProvider((record,))
     subject = coordinator(hass, client, ledger)
     with pytest.raises(module.LedgerRepairError):
         await subject.async_initialize()
@@ -501,7 +533,7 @@ async def test_initialize_rejects_pending_marker_with_empty_suffix(
             statistics_pending_fingerprint="f" * 64,
         )
     )
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, ledger)
     with pytest.raises(module.LedgerRepairError):
         await subject.async_initialize()
@@ -513,7 +545,11 @@ async def test_exact_pending_verification_clears_without_requeue(
 ) -> None:
     base = LedgerState(schema_version=2, intervals=(interval(),))
     batches = module.build_hourly_statistics(
-        base, public_id=PUBLIC_ID, currency="USD", start=interval().start
+        base,
+        public_id=PUBLIC_ID,
+        currency="USD",
+        start=interval().start,
+        capabilities=capabilities(),
     )
     fingerprint = module.statistics_fingerprint(batches)
     ledger = FakeLedger(
@@ -523,7 +559,7 @@ async def test_exact_pending_verification_clears_without_requeue(
             statistics_pending_fingerprint=fingerprint,
         )
     )
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     monkeypatch.setattr(module, "async_verify_queued_statistics", _true)
@@ -555,13 +591,17 @@ async def test_currency_mode_switch_persists_new_pending_before_requeue(
     base = LedgerState(schema_version=2, intervals=(record,))
     stored = module.statistics_fingerprint(
         module.build_hourly_statistics(
-            base, public_id=PUBLIC_ID, currency=stored_currency, start=record.start
+            base,
+            public_id=PUBLIC_ID,
+            currency=stored_currency,
+            start=record.start,
+            capabilities=capabilities(),
         )
     )
     ledger = FakeLedger(
         replace(base, statistics_pending_from=record.start, statistics_pending_fingerprint=stored)
     )
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, ledger)
     hass.config.currency = home_currency
     await subject.async_initialize()
@@ -590,14 +630,18 @@ async def test_currency_mode_migration_deferral_queues_nothing(
     base = LedgerState(schema_version=2, intervals=(record,))
     old = module.statistics_fingerprint(
         module.build_hourly_statistics(
-            base, public_id=PUBLIC_ID, currency="USD", start=record.start
+            base,
+            public_id=PUBLIC_ID,
+            currency="USD",
+            start=record.start,
+            capabilities=capabilities(),
         )
     )
     ledger = FakeLedger(
         replace(base, statistics_pending_from=record.start, statistics_pending_fingerprint=old)
     )
     ledger.fail_pending = True
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, ledger)
     hass.config.currency = "EUR"
     await subject.async_initialize()
@@ -632,7 +676,7 @@ async def test_schema_and_quarantine_preserve_prior_snapshot(
 ) -> None:
     prior = interval(NOW - timedelta(days=1), energy="4")
     ledger = FakeLedger(LedgerState(schema_version=2, intervals=(prior,)))
-    client = FakeClient((interval(),), failure=failure)
+    client = FakeProvider((interval(),), failure=failure)
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()
     before = subject.data
@@ -655,7 +699,7 @@ async def test_foreign_currency_ingests_energy_and_suppresses_money(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = FakeLedger()
-    subject = coordinator(hass, FakeClient((interval(currency="EUR"),)), ledger)
+    subject = coordinator(hass, FakeProvider((interval(currency="EUR"),)), ledger)
     await subject.async_initialize()
     queued: list[Any] = []
 
@@ -676,7 +720,7 @@ async def test_home_assistant_currency_mismatch_hides_snapshot_money(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ledger = FakeLedger()
-    subject = coordinator(hass, FakeClient((interval(),)), ledger)
+    subject = coordinator(hass, FakeProvider((interval(),)), ledger)
     hass.config.currency = "EUR"
     await subject.async_initialize()
     monkeypatch.setattr(module, "async_verify_queued_statistics", _false)
@@ -695,7 +739,7 @@ async def _noop_queue(*_: Any, **__: Any) -> object:
 async def test_auth_and_challenge_require_reauthentication(
     hass: HomeAssistant, recorder_stubs: list[str], failure: Exception
 ) -> None:
-    subject = coordinator(hass, FakeClient(failure=failure), FakeLedger())
+    subject = coordinator(hass, FakeProvider(failure=failure), FakeLedger())
     await subject.async_initialize()
     with pytest.raises(ConfigEntryAuthFailed):
         await subject._async_update_data()
@@ -707,7 +751,7 @@ async def test_first_transient_becomes_config_entry_not_ready(
     config_entry = entry(hass, state=ConfigEntryState.SETUP_IN_PROGRESS)
     subject = coordinator(
         hass,
-        FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT)),
+        FakeProvider(failure=EnergyUsageError(ErrorCategory.TRANSIENT)),
         FakeLedger(),
         config_entry=config_entry,
     )
@@ -719,7 +763,7 @@ async def test_first_transient_becomes_config_entry_not_ready(
 async def test_transient_backoff_retry_after_and_success_jitter(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
+    client = FakeProvider(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
     subject = coordinator(hass, client, FakeLedger(), jitter=lambda: 1)
     await subject.async_initialize()
     for expected in (3600, 7200, 14_400, 28_800, 86_400, 86_400):
@@ -744,17 +788,53 @@ async def test_transient_backoff_retry_after_and_success_jitter(
 async def test_zero_jitter_is_exact_configured_interval(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    subject = coordinator(hass, FakeClient(), FakeLedger(), jitter=lambda: 0)
+    subject = coordinator(hass, FakeProvider(), FakeLedger(), jitter=lambda: 0)
     await subject.async_initialize()
     await subject._async_update_data()
     assert subject.update_interval == timedelta(seconds=14_400)
+
+
+async def test_provider_minimum_clamps_polling_and_backfill(
+    hass: HomeAssistant,
+) -> None:
+    provider = FakeProvider(
+        provider_capabilities=capabilities(minimum_poll_interval=timedelta(hours=6))
+    )
+    subject = coordinator(hass, provider, FakeLedger(), jitter=lambda: 0)
+    await subject.async_initialize()
+    assert subject.diagnostics()["configured_poll_seconds"] == 21_600
+    assert subject.update_interval == timedelta(hours=6)
+    assert subject._backfill_interval == 21_600
+
+
+def test_coordinator_batches_follow_provider_capabilities(hass: HomeAssistant) -> None:
+    provider = FakeProvider(
+        provider_capabilities=capabilities(
+            supports_return=False,
+            supports_cost=False,
+            supports_compensation=False,
+            currency=None,
+        )
+    )
+    state = LedgerState(intervals=(interval(),))
+    subject = coordinator(hass, provider, FakeLedger(state))
+    assert len(subject._batches(state, interval().start)) == 1
+
+
+async def test_provider_currency_drives_rolling_money_summary(hass: HomeAssistant) -> None:
+    provider = FakeProvider(provider_capabilities=capabilities(currency="EUR"))
+    state = LedgerState(intervals=(interval(amount="1.25", currency="EUR"),))
+    subject = coordinator(hass, provider, FakeLedger(state))
+    hass.config.currency = "EUR"
+    await subject.async_initialize()
+    assert subject.data.latest_cost == Decimal("1.25")
 
 
 async def test_disabled_and_shutdown_make_no_requests(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     disabled_entry = entry(hass, disabled=True)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     disabled = coordinator(hass, client, FakeLedger(), config_entry=disabled_entry)
     await disabled.async_initialize()
     assert await disabled._async_update_data() is disabled.data
@@ -772,7 +852,7 @@ async def test_unloaded_states_make_no_normal_or_backfill_requests(
     hass: HomeAssistant, recorder_stubs: list[str], state: ConfigEntryState
 ) -> None:
     config_entry = entry(hass, state=state)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     subject = coordinator(hass, client, FakeLedger(), config_entry=config_entry)
     await subject.async_initialize()
     assert await subject._async_update_data() is subject.data
@@ -786,7 +866,7 @@ async def test_queued_normal_rechecks_unload_state_before_request(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     config_entry = entry(hass)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     client.block, client.release = asyncio.Event(), asyncio.Event()
     subject = coordinator(hass, client, FakeLedger(), config_entry=config_entry)
     await subject.async_initialize()
@@ -805,7 +885,7 @@ async def test_preference_disabled_polling_blocks_normal_and_backfill(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     config_entry = entry(hass, polling_disabled=True)
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     subject = coordinator(hass, client, FakeLedger(), config_entry=config_entry)
     await subject.async_initialize()
     assert await subject._async_update_data() is subject.data
@@ -818,7 +898,7 @@ async def test_preference_disabled_polling_blocks_normal_and_backfill(
 async def test_shutdown_cancels_active_chain_and_is_idempotent(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     client.block, client.release = asyncio.Event(), asyncio.Event()
     subject = coordinator(hass, client, FakeLedger())
     await subject.async_initialize()
@@ -835,7 +915,7 @@ async def test_concurrent_shutdown_callers_wait_for_one_cleanup(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    subject = coordinator(hass, FakeClient(), FakeLedger())
+    subject = coordinator(hass, FakeProvider(), FakeLedger())
     await subject.async_initialize()
     entered = asyncio.Event()
     release = asyncio.Event()
@@ -862,7 +942,7 @@ async def test_concurrent_shutdown_callers_wait_for_one_cleanup(
 async def test_priority_gate_runs_waiting_normal_before_next_backfill(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient((interval(),))
+    client = FakeProvider((interval(),))
     client.block, client.release = asyncio.Event(), asyncio.Event()
     ledger = FakeLedger()
     subject = coordinator(hass, client, ledger)
@@ -897,7 +977,7 @@ async def test_backfill_worker_waits_each_slot_and_completes_only_page_53(
 ) -> None:
     clock = FakeClock()
     ledger = FakeLedger()
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, ledger, clock=clock)
     await subject.async_initialize()
     await subject.async_start_backfill()
@@ -908,19 +988,19 @@ async def test_backfill_worker_waits_each_slot_and_completes_only_page_53(
     assert len(pages) == 53
     assert pages[0] == date(2026, 9, 22)
     assert pages[-1] == date(2025, 9, 24)
-    assert clock.sleeps == [1800] * 53
-    assert sum(clock.sleeps) == 26.5 * 3600
+    assert clock.sleeps == [3600] * 53
+    assert sum(clock.sleeps) == 53 * 3600
     assert ledger.state.backfill_complete
     assert subject.diagnostics()["backfill_pages_completed"] == 53
     assert subject.diagnostics()["backfill_progress_percent"] == 100
-    assert len(clock.sleeps[:48]) == 48 and sum(clock.sleeps[:48]) == 24 * 3600
+    assert len(clock.sleeps[:24]) == 24 and sum(clock.sleeps[:24]) == 24 * 3600
 
 
-async def test_backfill_does_not_run_before_first_half_hour(
+async def test_backfill_does_not_run_before_provider_minimum_interval(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     clock = ControlledClock()
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, FakeLedger(), clock=clock)
     await subject.async_initialize()
     await subject.async_start_backfill()
@@ -931,7 +1011,7 @@ async def test_backfill_does_not_run_before_first_half_hour(
 
 async def test_backfill_start_is_idempotent(hass: HomeAssistant, recorder_stubs: list[str]) -> None:
     clock = ControlledClock()
-    subject = coordinator(hass, FakeClient(), FakeLedger(), clock=clock)
+    subject = coordinator(hass, FakeProvider(), FakeLedger(), clock=clock)
     await subject.async_initialize()
     await subject.async_start_backfill()
     first = subject._backfill_task
@@ -944,12 +1024,12 @@ async def test_backfill_advances_empty_page_and_resumes_exactly(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     ledger = FakeLedger()
-    first = coordinator(hass, FakeClient(), ledger)
+    first = coordinator(hass, FakeProvider(), ledger)
     await first.async_initialize()
     assert await first.async_run_backfill_once()
     cursor = ledger.state.backfill_cursor
     assert cursor is not None
-    restarted_client = FakeClient()
+    restarted_client = FakeProvider()
     restarted = coordinator(hass, restarted_client, ledger)
     await restarted.async_initialize()
     assert await restarted.async_run_backfill_once()
@@ -963,7 +1043,7 @@ async def test_backfill_save_failure_does_not_advance_or_queue(
 ) -> None:
     ledger = FakeLedger()
     ledger.fail_ingest = True
-    subject = coordinator(hass, FakeClient((interval(),)), ledger)
+    subject = coordinator(hass, FakeProvider((interval(),)), ledger)
     await subject.async_initialize()
     queued = False
 
@@ -984,7 +1064,7 @@ async def test_backfill_queue_crash_publishes_verified_final_page(
 ) -> None:
     floor = datetime(2025, 9, 24, 5, tzinfo=UTC)
     ledger = FakeLedger(LedgerState(schema_version=2, backfill_cursor=floor + timedelta(days=7)))
-    subject = coordinator(hass, FakeClient((interval(floor + timedelta(hours=12)),)), ledger)
+    subject = coordinator(hass, FakeProvider((interval(floor + timedelta(hours=12)),)), ledger)
     await subject.async_initialize()
 
     async def queue(*_: Any, **__: Any) -> object:
@@ -1007,7 +1087,7 @@ async def test_backfill_drops_intervals_older_than_moving_floor(
     too_old = interval(datetime(2025, 9, 23, 12, tzinfo=UTC))
     in_range = interval(datetime(2026, 9, 22, 12, tzinfo=UTC))
     ledger = FakeLedger()
-    subject = coordinator(hass, FakeClient((too_old, in_range)), ledger)
+    subject = coordinator(hass, FakeProvider((too_old, in_range)), ledger)
     await subject.async_initialize()
     assert await subject.async_run_backfill_once()
     assert tuple(item.start for item in ledger.state.intervals) == (in_range.start,)
@@ -1019,7 +1099,7 @@ async def test_backfill_accepts_only_the_requested_local_date_page(
     requested = interval(datetime(2026, 9, 22, 12, tzinfo=UTC))
     older_page = interval(datetime(2026, 9, 15, 12, tzinfo=UTC))
     ledger = FakeLedger()
-    subject = coordinator(hass, FakeClient((older_page, requested)), ledger)
+    subject = coordinator(hass, FakeProvider((older_page, requested)), ledger)
     await subject.async_initialize()
     assert await subject.async_run_backfill_once()
     assert tuple(item.start for item in ledger.state.intervals) == (requested.start,)
@@ -1032,13 +1112,13 @@ async def test_backfill_rate_limit_pauses_independently_then_completes(
     state = LedgerState(schema_version=2, backfill_cursor=floor + timedelta(days=7))
     ledger = FakeLedger(state)
     clock = FakeClock()
-    client = FakeClient(failures=[RateLimitError(retry_after=7200), None])
+    client = FakeProvider(failures=[RateLimitError(retry_after=7200), None])
     subject = coordinator(hass, client, ledger, clock=clock)
     await subject.async_initialize()
     await subject.async_start_backfill()
     assert subject._backfill_task is not None
     await subject._backfill_task
-    assert clock.sleeps == [1800, 7200]
+    assert clock.sleeps == [3600, 7200]
     assert ledger.state.backfill_complete
     assert subject._normal_failures == 0
 
@@ -1057,7 +1137,7 @@ async def test_backfill_auth_starts_supported_reauthentication(
     monkeypatch.setattr(type(config_entry), "async_start_reauth_if_available", start_reauth)
     subject = coordinator(
         hass,
-        FakeClient(failure=AuthError()),
+        FakeProvider(failure=AuthError()),
         FakeLedger(),
         config_entry=config_entry,
     )
@@ -1091,7 +1171,7 @@ async def test_backfill_cursor_uses_local_dates_across_dst(
     expected: date,
 ) -> None:
     ledger = FakeLedger(LedgerState(schema_version=2, backfill_cursor=cursor))
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, ledger, clock=FakeClock(now))
     await subject.async_initialize()
     assert await subject.async_run_backfill_once()
@@ -1103,7 +1183,7 @@ async def test_diagnostics_are_allowlisted_and_reflect_only_verified_state(
 ) -> None:
     record = interval(estimated=True)
     ledger = FakeLedger(LedgerState(schema_version=2, intervals=(record,)))
-    subject = coordinator(hass, FakeClient((record,)), ledger)
+    subject = coordinator(hass, FakeProvider((record,)), ledger)
     await subject.async_initialize()
     await subject._async_update_data()
     diagnostic = subject.diagnostics()
@@ -1143,7 +1223,7 @@ async def test_currency_and_healthy_backfill_stall_conditions_coexist_and_notify
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     clock = FakeClock()
-    subject = coordinator(hass, FakeClient(), FakeLedger(), clock=clock)
+    subject = coordinator(hass, FakeProvider(), FakeLedger(), clock=clock)
     await subject.async_initialize()
     notifications = 0
 
@@ -1168,7 +1248,7 @@ async def test_backfill_stall_tracks_normal_network_health(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     clock = FakeClock()
-    client = FakeClient()
+    client = FakeProvider()
     subject = coordinator(hass, client, FakeLedger(), clock=clock)
     await subject.async_initialize()
     notifications = 0
@@ -1205,7 +1285,7 @@ async def test_backfill_stall_tracks_normal_network_health(
 async def test_backfill_error_and_verified_progress_notify_listeners(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
-    client = FakeClient(failures=[RateLimitError(retry_after=1800), None])
+    client = FakeProvider(failures=[RateLimitError(retry_after=1800), None])
     subject = coordinator(hass, client, FakeLedger())
     await subject.async_initialize()
     notifications = 0
@@ -1224,7 +1304,7 @@ async def test_public_refresh_notifies_once_after_committing_success_state(
     hass: HomeAssistant, recorder_stubs: list[str]
 ) -> None:
     clock = FakeClock()
-    subject = coordinator(hass, FakeClient(), FakeLedger(), clock=clock)
+    subject = coordinator(hass, FakeProvider(), FakeLedger(), clock=clock)
     await subject.async_initialize()
     observed: list[tuple[bool, str | None]] = []
 
@@ -1252,7 +1332,7 @@ async def test_non_backoff_outcome_restores_normal_next_poll_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
     outcome: str,
 ) -> None:
-    client = FakeClient(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
+    client = FakeProvider(failure=EnergyUsageError(ErrorCategory.TRANSIENT))
     ledger = FakeLedger()
     subject = coordinator(hass, client, ledger)
     await subject.async_initialize()

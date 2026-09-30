@@ -218,7 +218,7 @@ async def test_real_sensor_platform_state_registry_and_coordinator_availability(
         patch.object(integration, "async_recover_migration", AsyncMock(return_value=True)),
         patch.object(integration, "EnergyLedger", return_value=ledger),
         patch.object(integration, "create_provider", return_value=client),
-        patch.object(integration, "EntergyDataUpdateCoordinator", return_value=coordinator),
+        patch.object(integration, "EnergyUsageDataUpdateCoordinator", return_value=coordinator),
     ):
         assert await hass.config_entries.async_setup(item.entry_id)
         await hass.async_block_till_done()

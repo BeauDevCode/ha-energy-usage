@@ -7,7 +7,7 @@ import re
 from collections.abc import Coroutine, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.config_entries import ConfigEntry
@@ -25,7 +25,7 @@ from .const import (
     DOMAIN,
     PROVIDER_SCHEMA_VERSION,
 )
-from .coordinator import CoordinatorProvider, EntergyDataUpdateCoordinator
+from .coordinator import EnergyUsageDataUpdateCoordinator
 from .issues import RepairKind, create_issue, delete_issue
 from .ledger import EnergyLedger, LedgerRepairError
 from .provider import EnergyProvider, RequestBudget, create_provider, provider_descriptors
@@ -43,7 +43,7 @@ class EnergyUsageRuntimeData:
 
     provider: EnergyProvider
     ledger: EnergyLedger
-    coordinator: EntergyDataUpdateCoordinator
+    coordinator: EnergyUsageDataUpdateCoordinator
 
 
 type EnergyUsageConfigEntry = ConfigEntry[EnergyUsageRuntimeData]
@@ -63,7 +63,7 @@ _CONDITION_TO_REPAIR = {
 
 
 def _active_runtime_repairs(
-    coordinator: EntergyDataUpdateCoordinator,
+    coordinator: EnergyUsageDataUpdateCoordinator,
 ) -> tuple[set[RepairKind], bool]:
     """Read the coordinator's closed, value-free repair condition set."""
     diagnostics = coordinator.diagnostics()
@@ -79,7 +79,7 @@ def _active_runtime_repairs(
 def _create_active_runtime_issues(
     hass: HomeAssistant,
     public_id: str,
-    coordinator: EntergyDataUpdateCoordinator,
+    coordinator: EnergyUsageDataUpdateCoordinator,
 ) -> tuple[set[RepairKind], bool]:
     active, has_verified_fetch = _active_runtime_repairs(coordinator)
     for kind in active:
@@ -90,7 +90,7 @@ def _create_active_runtime_issues(
 def _reconcile_runtime_issues(
     hass: HomeAssistant,
     public_id: str,
-    coordinator: EntergyDataUpdateCoordinator,
+    coordinator: EnergyUsageDataUpdateCoordinator,
 ) -> None:
     active, has_verified_fetch = _create_active_runtime_issues(hass, public_id, coordinator)
     if not has_verified_fetch:
@@ -133,23 +133,15 @@ async def _async_complete_cleanup(
 
 async def _async_logout_provider(provider: EnergyProvider) -> None:
     """Best-effort provider-owned credential cleanup."""
-    try:
-        with suppress(Exception):
-            await provider.async_logout(RequestBudget())
-    finally:
-        # Temporary bridge for the Entergy transport. Released providers clear
-        # their authentication state inside async_logout.
-        clear_token = getattr(provider, "clear_token", None)
-        if callable(clear_token):
-            with suppress(Exception):
-                clear_token()
+    with suppress(Exception):
+        await provider.async_logout(RequestBudget())
 
 
 async def _async_cleanup_failed_setup(
     hass: HomeAssistant,
     entry: EnergyUsageConfigEntry,
     provider: EnergyProvider,
-    coordinator: EntergyDataUpdateCoordinator | None,
+    coordinator: EnergyUsageDataUpdateCoordinator | None,
 ) -> None:
     async def cleanup() -> None:
         try:
@@ -196,7 +188,7 @@ def _entry_is_valid(entry: ConfigEntry) -> bool:
         return False
     try:
         ZoneInfo(time_zone)
-    except (TypeError, ValueError, ZoneInfoNotFoundError):
+    except TypeError, ValueError, ZoneInfoNotFoundError:
         return False
     return True
 
@@ -255,12 +247,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EnergyUsageConfigEntry) 
         provider_key=provider_key,
         provider_schema_version=provider_schema_version,
     )
-    coordinator: EntergyDataUpdateCoordinator | None = None
+    coordinator: EnergyUsageDataUpdateCoordinator | None = None
     try:
-        coordinator = EntergyDataUpdateCoordinator(
+        coordinator = EnergyUsageDataUpdateCoordinator(
             hass,
             entry,
-            cast(CoordinatorProvider, provider),
+            provider,
             ledger,
             time_zone=str(entry.data[CONF_TIME_ZONE]),
         )

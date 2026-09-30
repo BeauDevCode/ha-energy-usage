@@ -26,7 +26,7 @@ from homeassistant.util.unit_conversion import EnergyConverter
 
 from .const import DOMAIN
 from .ledger import cumulative_totals
-from .models import LedgerState
+from .models import LedgerState, ProviderCapabilities
 
 type StatisticsBatch = tuple[StatisticMetaData, Sequence[StatisticData]]
 
@@ -71,7 +71,7 @@ def _metadata(statistic_id: str, label: str, *, energy: bool) -> StatisticMetaDa
     return StatisticMetaData(
         statistic_id=statistic_id,
         source=DOMAIN,
-        name=f"Entergy {label}",
+        name=f"Energy Usage {label}",
         mean_type=StatisticMeanType.NONE,
         has_sum=True,
         unit_class=EnergyConverter.UNIT_CLASS if energy else None,
@@ -85,6 +85,7 @@ def build_hourly_statistics(
     public_id: str,
     currency: str,
     start: datetime | None,
+    capabilities: ProviderCapabilities,
 ) -> tuple[tuple[StatisticMetaData, tuple[StatisticData, ...]], ...]:
     """Build a suffix, accumulating the full canonical ledger before selecting it.
 
@@ -94,7 +95,12 @@ def build_hourly_statistics(
     money, including when that history precedes the requested suffix.
     """
     ids = statistic_ids(public_id)
-    monetary = currency == "USD" and all(item.currency in (None, "USD") for item in state.intervals)
+    provider_currency = capabilities.currency
+    monetary = (
+        provider_currency is not None
+        and currency == provider_currency
+        and all(item.currency in (None, provider_currency) for item in state.intervals)
+    )
     amounts_present = any(item.amount is not None for item in state.intervals) or bool(
         state.baseline.cost or state.baseline.compensation
     )
@@ -102,7 +108,11 @@ def build_hourly_statistics(
     returned: list[StatisticData] = []
     cost: list[StatisticData] = []
     compensation: list[StatisticData] = []
-    for item, (hour, totals) in zip(state.intervals, cumulative_totals(state), strict=True):
+    for item, (hour, totals) in zip(
+        state.intervals,
+        cumulative_totals(state, currency=provider_currency),
+        strict=True,
+    ):
         if start is not None and hour < start:
             continue
         hour = hour.astimezone(UTC)
@@ -126,17 +136,18 @@ def build_hourly_statistics(
                     sum=float(totals.compensation),
                 )
             )
-    batches = (
-        (_metadata(ids.consumption, "consumption", energy=True), tuple(consumption)),
-        (_metadata(ids.return_, "return", energy=True), tuple(returned)),
-    )
-    if not monetary:
-        return batches
-    return (
-        *batches,
-        (_metadata(ids.cost, "cost", energy=False), tuple(cost)),
-        (_metadata(ids.compensation, "compensation", energy=False), tuple(compensation)),
-    )
+    batches: list[tuple[StatisticMetaData, tuple[StatisticData, ...]]] = [
+        (_metadata(ids.consumption, "consumption", energy=True), tuple(consumption))
+    ]
+    if capabilities.supports_return:
+        batches.append((_metadata(ids.return_, "return", energy=True), tuple(returned)))
+    if monetary and capabilities.supports_cost:
+        batches.append((_metadata(ids.cost, "cost", energy=False), tuple(cost)))
+    if monetary and capabilities.supports_compensation:
+        batches.append(
+            (_metadata(ids.compensation, "compensation", energy=False), tuple(compensation))
+        )
+    return tuple(batches)
 
 
 def statistics_fingerprint(batches: Sequence[StatisticsBatch]) -> str:

@@ -31,11 +31,18 @@ class _Unchanged(Enum):
 UNCHANGED = _Unchanged.VALUE
 
 
-def _add_interval(totals: LedgerTotals, item: EnergyInterval) -> LedgerTotals:
+def _add_interval(
+    totals: LedgerTotals,
+    item: EnergyInterval,
+    *,
+    currency: str | None,
+) -> LedgerTotals:
     # Baselines discard source provenance, so they must never absorb foreign
     # currency. Use the same eligible contributions for retained running totals.
     amount = (
-        item.amount if item.amount is not None and item.currency in (None, "USD") else Decimal(0)
+        item.amount
+        if currency is not None and item.amount is not None and item.currency in (None, currency)
+        else Decimal(0)
     )
     return LedgerTotals(
         _exact_sum((totals.import_kwh, item.import_kwh)),
@@ -45,7 +52,11 @@ def _add_interval(totals: LedgerTotals, item: EnergyInterval) -> LedgerTotals:
     )
 
 
-def cumulative_totals(state: LedgerState) -> tuple[tuple[datetime, LedgerTotals], ...]:
+def cumulative_totals(
+    state: LedgerState,
+    *,
+    currency: str | None = None,
+) -> tuple[tuple[datetime, LedgerTotals], ...]:
     """Rebuild exact cumulative values from the baseline and canonical hours.
 
     Consumers may select the suffix starting at earliest_statistics_hour. A
@@ -54,7 +65,7 @@ def cumulative_totals(state: LedgerState) -> tuple[tuple[datetime, LedgerTotals]
     totals = state.baseline
     rows = []
     for item in state.intervals:
-        totals = _add_interval(totals, item)
+        totals = _add_interval(totals, item, currency=currency)
         rows.append((item.start, totals))
     return tuple(rows)
 
@@ -66,6 +77,7 @@ def reconcile(
     received_at: datetime,
     backfill_cursor: datetime | None | _Unchanged = UNCHANGED,
     backfill_complete: bool | _Unchanged = UNCHANGED,
+    currency: str | None = None,
 ) -> LedgerMutation:
     """Prepare one immutable revision without Store or Recorder operations.
 
@@ -122,7 +134,7 @@ def reconcile(
     retained = []
     for item in sorted(known.values(), key=lambda item: item.start):
         if item.end <= cutoff:
-            baseline = _add_interval(baseline, item)
+            baseline = _add_interval(baseline, item, currency=currency)
             changed_hours.append(item.start)
         else:
             retained.append(item)

@@ -796,9 +796,9 @@ def test_retention_moves_exact_four_channel_totals_and_keeps_boundary_hour() -> 
     with localcontext() as ctx:
         ctx.prec = 2
         ctx.traps[Inexact] = True
-        result = api.reconcile(state, [], received_at=receipt)
-        totals = api.cumulative_totals(result.state)
-        assert totals == api.cumulative_totals(state)[2:]
+        result = api.reconcile(state, [], received_at=receipt, currency="USD")
+        totals = api.cumulative_totals(result.state, currency="USD")
+        assert totals == api.cumulative_totals(state, currency="USD")[2:]
     assert result.state.intervals == records[2:]
     assert result.state.baseline == LedgerTotals(
         Decimal("11.12345678901234567890123456789"),
@@ -836,14 +836,16 @@ def test_correction_rebuilds_return_cost_and_compensation_in_both_directions() -
     )
     state = LedgerState(schema_version=2, intervals=records)
     correction = replace(records[0], return_kwh=Decimal("1"), amount=Decimal("-0.2"))
-    result = api.reconcile(state, [correction], received_at=HOUR)
-    assert [total for _, total in api.cumulative_totals(result.state)] == [
+    result = api.reconcile(state, [correction], received_at=HOUR, currency="USD")
+    assert [total for _, total in api.cumulative_totals(result.state, currency="USD")] == [
         LedgerTotals(Decimal("1"), Decimal("1"), Decimal("0"), Decimal("0.2")),
         LedgerTotals(Decimal("2"), Decimal("4"), Decimal("0.5"), Decimal("0.2")),
         LedgerTotals(Decimal("3"), Decimal("7"), Decimal("1"), Decimal("0.2")),
     ]
-    restored = api.reconcile(result.state, [records[0]], received_at=HOUR)
-    assert api.cumulative_totals(restored.state) == api.cumulative_totals(state)
+    restored = api.reconcile(result.state, [records[0]], received_at=HOUR, currency="USD")
+    assert api.cumulative_totals(restored.state, currency="USD") == api.cumulative_totals(
+        state, currency="USD"
+    )
 
 
 def test_quarantine_preserves_pending_markers_baselines_and_prunable_hours() -> None:
@@ -873,7 +875,7 @@ async def test_quarantine_explicit_retraction_preserves_verified_store(
     hass: HomeAssistant, hass_storage: dict[str, Any]
 ) -> None:
     from custom_components.energy_usage.errors import PayloadError
-    from custom_components.energy_usage.parser import parse_usage
+    from custom_components.energy_usage.providers.entergy.parser import parse_usage
 
     ledger = await loaded(hass)
     await ledger.async_ingest(mutation(ledger))
@@ -936,7 +938,7 @@ def test_retention_baselines_include_only_usd_or_omitted_source_currency(
         ),
         baseline=LedgerTotals(Decimal(10), Decimal(5), Decimal(3), Decimal(1)),
     )
-    pruned = api.reconcile(state, (), received_at=HOUR + timedelta(days=401)).state
+    pruned = api.reconcile(state, (), received_at=HOUR + timedelta(days=401), currency="USD").state
     assert pruned.intervals == ()
     assert pruned.baseline == LedgerTotals(
         Decimal(12),
@@ -1072,9 +1074,7 @@ async def test_valid_tiny_intervals_prune_to_larger_exact_baseline(hass: HomeAss
     assert pruned.state.baseline.import_kwh == expected
     ledger = await loaded(hass)
     assert not (await ledger.async_ingest(pruned)).deferred
-    assert (
-        await new_ledger(hass).async_load(initialized=True)
-    ).baseline.import_kwh == expected
+    assert (await new_ledger(hass).async_load(initialized=True)).baseline.import_kwh == expected
 
 
 async def test_derived_baseline_above_fixed_resource_ceiling_is_rejected(

@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 import pytest
 from custom_components.energy_usage.ledger import EnergyLedger, reconcile
-from custom_components.energy_usage.models import EnergyInterval, LedgerState, LedgerTotals
+from custom_components.energy_usage.models import (
+    EnergyInterval,
+    LedgerState,
+    LedgerTotals,
+    ProviderCapabilities,
+)
 from custom_components.energy_usage.statistics import (
     StatisticsQueueResult,
     async_queue_external_statistics,
@@ -41,6 +46,26 @@ IDS = statistic_ids(PUBLIC_ID)
 type Batch = tuple[StatisticMetaData, tuple[StatisticData, ...]]
 
 
+def capabilities(
+    *,
+    supports_return: bool = True,
+    supports_cost: bool = True,
+    supports_compensation: bool = True,
+    currency: str | None = "USD",
+) -> ProviderCapabilities:
+    return ProviderCapabilities(
+        supports_import=True,
+        supports_return=supports_return,
+        supports_cost=supports_cost,
+        supports_compensation=supports_compensation,
+        currency=currency,
+        interval_duration=timedelta(hours=1),
+        publication_delay=timedelta(hours=6),
+        historical_range=timedelta(days=370),
+        minimum_poll_interval=timedelta(hours=1),
+    )
+
+
 def interval(
     hour: datetime = HOUR,
     energy: str = "4",
@@ -61,9 +86,86 @@ def interval(
 
 
 def build(
-    state: LedgerState, start: datetime | None = None, currency: str = "USD"
+    state: LedgerState,
+    start: datetime | None = None,
+    currency: str = "USD",
+    provider_capabilities: ProviderCapabilities | None = None,
 ) -> tuple[Batch, ...]:
-    return build_hourly_statistics(state, public_id=PUBLIC_ID, currency=currency, start=start)
+    return build_hourly_statistics(
+        state,
+        public_id=PUBLIC_ID,
+        currency=currency,
+        start=start,
+        capabilities=provider_capabilities or capabilities(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider_capabilities", "expected"),
+    [
+        (
+            capabilities(
+                supports_return=False,
+                supports_cost=False,
+                supports_compensation=False,
+                currency=None,
+            ),
+            (IDS.consumption,),
+        ),
+        (
+            capabilities(supports_cost=False, supports_compensation=False, currency=None),
+            (IDS.consumption, IDS.return_),
+        ),
+        (capabilities(supports_compensation=False), (IDS.consumption, IDS.return_, IDS.cost)),
+        (capabilities(), (IDS.consumption, IDS.return_, IDS.cost, IDS.compensation)),
+    ],
+)
+def test_capabilities_omit_unsupported_series_instead_of_emitting_zeroes(
+    provider_capabilities: ProviderCapabilities,
+    expected: tuple[str, ...],
+) -> None:
+    batches = build(
+        LedgerState(intervals=(interval(),)),
+        provider_capabilities=provider_capabilities,
+    )
+    assert tuple(meta["statistic_id"] for meta, _ in batches) == expected
+
+
+def test_provider_currency_must_match_home_assistant_currency() -> None:
+    euro = capabilities(currency="EUR")
+    matching = build(
+        LedgerState(intervals=(interval(currency="EUR"),)),
+        currency="EUR",
+        provider_capabilities=euro,
+    )
+    mismatched = build(
+        LedgerState(intervals=(interval(currency="EUR"),)),
+        currency="USD",
+        provider_capabilities=euro,
+    )
+    assert len(matching) == 4
+    assert tuple(meta["statistic_id"] for meta, _ in mismatched) == (
+        IDS.consumption,
+        IDS.return_,
+    )
+
+
+def test_non_usd_provider_uses_exact_cumulative_money_totals() -> None:
+    euro = capabilities(currency="EUR")
+    state = LedgerState(
+        intervals=(
+            interval(amount="1.25", currency="EUR"),
+            interval(NEXT, amount="2.50", currency="EUR"),
+        )
+    )
+    batches = {
+        meta["statistic_id"]: rows
+        for meta, rows in build(state, currency="EUR", provider_capabilities=euro)
+    }
+    assert [(row["state"], row["sum"]) for row in batches[IDS.cost]] == [
+        (1.25, 1.25),
+        (2.5, 3.75),
+    ]
 
 
 def test_ids_metadata_and_separate_hourly_and_cumulative_values() -> None:
@@ -370,6 +472,7 @@ def test_fingerprint_is_restart_and_batch_order_stable_but_tracks_payload_change
         public_id="b" * 32,
         currency="USD",
         start=None,
+        capabilities=capabilities(),
     )
     assert fingerprint != statistics_fingerprint(other_ids)
 
@@ -400,7 +503,7 @@ def test_pruned_non_usd_amounts_never_reappear_as_usd_statistics(
     )
     before = build(state)
     assert len(before) == (2 if currency == "EUR" else 4)
-    pruned = reconcile(state, (), received_at=now).state
+    pruned = reconcile(state, (), received_at=now, currency="USD").state
     assert len(pruned.intervals) == 1
     batches = {meta["statistic_id"]: rows for meta, rows in build(pruned)}
     assert batches[IDS.consumption] == ({"start": recent, "state": 4.0, "sum": 12.0},)

@@ -36,9 +36,15 @@ from .errors import (
     RateLimitError,
 )
 from .ledger import EnergyLedger, LedgerRepairError, reconcile
-from .models import Account, EnergyInterval, LedgerMutation, LedgerState, UsageSnapshot
-from .parser import summarize_usage
-from .provider import RequestBudget
+from .models import (
+    EnergyInterval,
+    LedgerMutation,
+    LedgerState,
+    ProviderLocation,
+    UsageSnapshot,
+)
+from .summary import summarize_usage
+from .provider import EnergyProvider, IntervalRequest, RequestBudget
 from .statistics import (
     StatisticsBatch,
     async_queue_external_statistics,
@@ -51,30 +57,11 @@ from .statistics import (
 _LOGGER = logging.getLogger(__name__)
 
 _NORMAL_DAYS = 45
-_NORMAL_PAGES = 7
 _PAGE_DAYS = 7
-_BACKFILL_DAYS = 370
 _BACKFILL_INTERVAL = 30 * 60
 _BACKOFF = (3600, 7200, 14_400, 28_800, 86_400)
 
 type _DiagnosticsValue = str | int | bool | None | list[str]
-
-
-class CoordinatorProvider(Protocol):
-    """Temporary transport surface removed by the provider polling refactor."""
-
-    async def async_get_account(
-        self, private_location_id: str, budget: RequestBudget
-    ) -> Account: ...
-
-    async def async_get_weekly_usage(
-        self,
-        private_location_id: str,
-        start: date,
-        budget: RequestBudget,
-        *,
-        fallback_time_zone: str,
-    ) -> tuple[EnergyInterval, ...]: ...
 
 
 class _Clock(Protocol):
@@ -144,20 +131,25 @@ def _through(batches: Sequence[StatisticsBatch]) -> datetime | None:
     return max(hours) if hours else None
 
 
-def _monetary_allowed(state: LedgerState, home_currency: str) -> bool:
-    return home_currency == "USD" and all(
-        item.currency in (None, "USD") for item in state.intervals
+def _monetary_allowed(state: LedgerState, home_currency: str, provider: EnergyProvider) -> bool:
+    if not (provider.capabilities.supports_cost or provider.capabilities.supports_compensation):
+        return True
+    currency = provider.capabilities.currency
+    return (
+        currency is not None
+        and home_currency == currency
+        and all(item.currency in (None, currency) for item in state.intervals)
     )
 
 
-class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
+class EnergyUsageDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
     """Coordinate atomic utility reconciliation without starving normal polls."""
 
     def __init__(
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        client: CoordinatorProvider,
+        provider: EnergyProvider,
         ledger: EnergyLedger,
         *,
         time_zone: str,
@@ -167,8 +159,11 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         configured = int(
             entry.options.get(CONF_SCAN_INTERVAL_SECONDS, DEFAULT_SCAN_INTERVAL_SECONDS)
         )
+        provider_minimum = int(provider.capabilities.minimum_poll_interval.total_seconds())
         self._configured_poll_seconds = max(
-            MIN_SCAN_INTERVAL_SECONDS, min(MAX_SCAN_INTERVAL_SECONDS, configured)
+            MIN_SCAN_INTERVAL_SECONDS,
+            provider_minimum,
+            min(MAX_SCAN_INTERVAL_SECONDS, configured),
         )
         super().__init__(
             hass,
@@ -179,12 +174,19 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             always_update=False,
         )
         self._entry = entry
-        self._client = client
+        self._provider = provider
         self._ledger = ledger
-        self._account_id = str(entry.data[CONF_PRIVATE_LOCATION_ID])
+        self._private_location_id = str(entry.data[CONF_PRIVATE_LOCATION_ID])
         self._public_id = str(entry.data[CONF_LOCATION_PUBLIC_ID])
         self._time_zone = time_zone
         self._zone = ZoneInfo(time_zone)
+        historical_days = max(
+            1, int(provider.capabilities.historical_range.total_seconds() // 86400)
+        )
+        self._normal_days = min(_NORMAL_DAYS, historical_days)
+        self._backfill_days = historical_days
+        self._backfill_pages_total = max(1, (historical_days + _PAGE_DAYS - 1) // _PAGE_DAYS)
+        self._backfill_interval = float(max(_BACKFILL_INTERVAL, provider_minimum))
         self._clock = _clock or _SystemClock()
         self._jitter = _jitter or __import__("random").random
         self._gate = _PriorityGate()
@@ -192,7 +194,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._normal_failures = 0
         self._normal_network_healthy = False
         self._backfill_failures = 0
-        self._backfill_delay = float(_BACKFILL_INTERVAL)
+        self._backfill_delay = self._backfill_interval
         self._backfill_pages = 0
         self._backfill_task: asyncio.Task[None] | None = None
         self._active_chain_tasks: set[asyncio.Task[Any]] = set()
@@ -236,8 +238,17 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         }
 
     def _snapshot(self, state: LedgerState) -> UsageSnapshot:
-        snapshot = summarize_usage(state, time_zone=self._time_zone, now=_utc_now(self._clock))
-        if self.hass.config.currency == "USD":
+        snapshot = summarize_usage(
+            state,
+            time_zone=self._time_zone,
+            now=_utc_now(self._clock),
+            currency=self._provider.capabilities.currency,
+        )
+        supports_money = (
+            self._provider.capabilities.supports_cost
+            or self._provider.capabilities.supports_compensation
+        )
+        if supports_money and _monetary_allowed(state, self.hass.config.currency, self._provider):
             return snapshot
         return replace(
             snapshot,
@@ -331,7 +342,10 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                     today + timedelta(days=1) - state.backfill_cursor.astimezone(self._zone).date()
                 ).days,
             )
-            self._backfill_pages = min(53, (distance + _PAGE_DAYS - 1) // _PAGE_DAYS)
+            self._backfill_pages = min(
+                self._backfill_pages_total,
+                (distance + _PAGE_DAYS - 1) // _PAGE_DAYS,
+            )
         # External statistics must continue polling even if every entity is disabled.
         self._retained_listener_unsub = self.async_add_listener(lambda: None)
         self._initialized = True
@@ -371,24 +385,34 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             public_id=self._public_id,
             currency=self.hass.config.currency,
             start=start,
+            capabilities=self._provider.capabilities,
         )
 
     def _alternate_pending_fingerprint(self, state: LedgerState, start: datetime) -> str:
-        """Accept only the other reviewed USD/energy-only payload for this suffix."""
-        alternate_currency = "EUR" if self.hass.config.currency == "USD" else "USD"
+        """Accept only the other reviewed money/energy-only payload for this suffix."""
+        provider_currency = self._provider.capabilities.currency
+        alternate_currency = (
+            "__mismatch__"
+            if provider_currency == self.hass.config.currency
+            else provider_currency or "__mismatch__"
+        )
         alternate = build_hourly_statistics(
-            state, public_id=self._public_id, currency=alternate_currency, start=start
+            state,
+            public_id=self._public_id,
+            currency=alternate_currency,
+            start=start,
+            capabilities=self._provider.capabilities,
         )
         return statistics_fingerprint(alternate)
 
-    def _use_confirmed_account_zone(self, account: Account) -> None:
-        if account.time_zone is None or account.time_zone == self._time_zone:
+    def _use_confirmed_location_zone(self, location: ProviderLocation) -> None:
+        if location.time_zone is None or location.time_zone == self._time_zone:
             return
         try:
-            zone = ZoneInfo(account.time_zone)
+            zone = ZoneInfo(location.time_zone)
         except ValueError, ZoneInfoNotFoundError:
             return
-        self._time_zone = account.time_zone
+        self._time_zone = location.time_zone
         self._zone = zone
 
     async def _async_recover_pending_statistics(self) -> None:
@@ -473,8 +497,33 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         return True
 
     def _normal_starts(self, today: date) -> tuple[date, ...]:
-        first = today - timedelta(days=_NORMAL_DAYS - 1)
-        return tuple(first + timedelta(days=_PAGE_DAYS * page) for page in range(_NORMAL_PAGES))
+        first = today - timedelta(days=self._normal_days - 1)
+        pages = (self._normal_days + _PAGE_DAYS - 1) // _PAGE_DAYS
+        return tuple(first + timedelta(days=_PAGE_DAYS * page) for page in range(pages))
+
+    async def _async_fetch_window(
+        self,
+        start: date,
+        end: date,
+        budget: RequestBudget,
+    ) -> tuple[EnergyInterval, ...]:
+        """Fetch a local-date window and follow bounded provider cursors."""
+        cursor: str | None = None
+        intervals: list[EnergyInterval] = []
+        while True:
+            page = await self._provider.async_fetch_intervals(
+                IntervalRequest(
+                    private_location_id=self._private_location_id,
+                    start=_local_midnight_utc(start, self._zone),
+                    end=_local_midnight_utc(end, self._zone),
+                    cursor=cursor,
+                ),
+                budget,
+            )
+            intervals.extend(page.intervals)
+            if page.complete:
+                return tuple(intervals)
+            cursor = page.next_cursor
 
     def _publish_verified_normal(self, mutation: LedgerMutation, now: datetime) -> UsageSnapshot:
         self._last_inserted = mutation.inserted
@@ -483,7 +532,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._repair_conditions.discard("schema_drift")
         self._repair_conditions.discard("data_retraction")
         self._repair_conditions.discard("ledger_repair")
-        if _monetary_allowed(self._ledger.state, self.hass.config.currency):
+        if _monetary_allowed(self._ledger.state, self.hass.config.currency, self._provider):
             self._repair_conditions.discard("currency_mismatch")
             self._condition = None
         else:
@@ -504,24 +553,29 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         await self._async_recover_pending_statistics()
         now = _utc_now(self._clock)
         budget = RequestBudget()
-        account = await self._client.async_get_account(self._account_id, budget)
-        self._use_confirmed_account_zone(account)
+        location = await self._provider.async_confirm_location(self._private_location_id, budget)
+        self._use_confirmed_location_zone(location)
         today = now.astimezone(self._zone).date()
-        floor = today - timedelta(days=_NORMAL_DAYS - 1)
+        floor = today - timedelta(days=self._normal_days - 1)
         pages: list[EnergyInterval] = []
         for start in self._normal_starts(today):
-            page = await self._client.async_get_weekly_usage(
-                self._account_id,
-                start,
-                budget,
-                fallback_time_zone=self._time_zone,
+            pages.extend(
+                await self._async_fetch_window(
+                    start,
+                    min(start + timedelta(days=_PAGE_DAYS), today + timedelta(days=1)),
+                    budget,
+                )
             )
-            pages.extend(page)
         self._normal_network_healthy = True
         incoming = tuple(
             item for item in pages if floor <= item.start.astimezone(self._zone).date() <= today
         )
-        mutation = reconcile(self._ledger.state, incoming, received_at=now)
+        mutation = reconcile(
+            self._ledger.state,
+            incoming,
+            received_at=now,
+            currency=self._provider.capabilities.currency,
+        )
         if mutation.deferred:
             self._condition = (
                 "data_retraction" if mutation.repair == "usage_quarantine" else "ledger_repair"
@@ -614,7 +668,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
 
     def _next_backfill_page(self, now: datetime) -> tuple[date, date, bool]:
         today = now.astimezone(self._zone).date()
-        floor = today - timedelta(days=_BACKFILL_DAYS - 1)
+        floor = today - timedelta(days=self._backfill_days - 1)
         cursor = self._ledger.state.backfill_cursor
         cursor_date = (
             today + timedelta(days=1) if cursor is None else cursor.astimezone(self._zone).date()
@@ -629,7 +683,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             if error.retry_after is not None
             else _BACKOFF[min(self._backfill_failures - 1, len(_BACKOFF) - 1)]
         )
-        self._backfill_delay = float(max(_BACKFILL_INTERVAL, delay))
+        self._backfill_delay = float(max(self._backfill_interval, delay))
         self._condition = condition or error.category.value
         if self._condition in {
             "schema_drift",
@@ -656,7 +710,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
     def _publish_verified_backfill(self, mutation: LedgerMutation, now: datetime) -> UsageSnapshot:
         """Publish a durable backfill checkpoint, even if Recorder queueing failed."""
         self._backfill_failures = 0
-        self._backfill_delay = float(_BACKFILL_INTERVAL)
+        self._backfill_delay = self._backfill_interval
         self._backfill_pages += 1
         self._last_inserted = mutation.inserted
         self._last_corrected = mutation.corrected
@@ -666,7 +720,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         self._repair_conditions.discard("schema_drift")
         self._repair_conditions.discard("data_retraction")
         self._repair_conditions.discard("ledger_repair")
-        if _monetary_allowed(self._ledger.state, self.hass.config.currency):
+        if _monetary_allowed(self._ledger.state, self.hass.config.currency, self._provider):
             self._repair_conditions.discard("currency_mismatch")
             self._condition = None
         else:
@@ -688,14 +742,18 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                 await self._async_recover_pending_statistics()
                 now = _utc_now(self._clock)
                 budget = RequestBudget()
-                account = await self._client.async_get_account(self._account_id, budget)
-                self._use_confirmed_account_zone(account)
+                location = await self._provider.async_confirm_location(
+                    self._private_location_id, budget
+                )
+                self._use_confirmed_location_zone(location)
                 start, floor, complete = self._next_backfill_page(now)
-                incoming = await self._client.async_get_weekly_usage(
-                    self._account_id,
+                incoming = await self._async_fetch_window(
                     start,
+                    min(
+                        start + timedelta(days=_PAGE_DAYS),
+                        now.astimezone(self._zone).date() + timedelta(days=1),
+                    ),
                     budget,
-                    fallback_time_zone=self._time_zone,
                 )
                 cursor_before = self._ledger.state.backfill_cursor
                 cursor_date = (
@@ -714,6 +772,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                     received_at=now,
                     backfill_cursor=_local_midnight_utc(start, self._zone),
                     backfill_complete=complete,
+                    currency=self._provider.capabilities.currency,
                 )
                 if mutation.deferred:
                     self._condition = (
@@ -783,7 +842,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             return False
 
     async def _async_backfill_worker(self) -> None:
-        delay = float(_BACKFILL_INTERVAL)
+        delay = self._backfill_interval
         self._backfill_started_at = _utc_now(self._clock)
         while self._backfill_worker_allowed() and not self._ledger.state.backfill_complete:
             await self._clock.sleep(delay)
@@ -791,13 +850,13 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
                 break
             self._refresh_backfill_stalled(notify=True)
             if not self._backfill_request_allowed():
-                delay = float(_BACKFILL_INTERVAL)
+                delay = self._backfill_interval
                 continue
             try:
                 progressed = await self.async_run_backfill_once()
             except ConfigEntryAuthFailed:
                 break
-            delay = float(_BACKFILL_INTERVAL) if progressed else self._backfill_delay
+            delay = self._backfill_interval if progressed else self._backfill_delay
 
     async def async_start_backfill(self) -> None:
         """Start one idempotent low-rate worker."""
@@ -851,7 +910,11 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
         repairs = set(self._repair_conditions)
         if self._backfill_stalled:
             repairs.add("backfill_stalled")
-        progress = 100 if state.backfill_complete else min(99, self._backfill_pages * 100 // 53)
+        progress = (
+            100
+            if state.backfill_complete
+            else min(99, self._backfill_pages * 100 // self._backfill_pages_total)
+        )
         return {
             "configured_poll_seconds": self._configured_poll_seconds,
             "next_poll_seconds": int(self._next_poll_seconds)
@@ -870,7 +933,7 @@ class EntergyDataUpdateCoordinator(DataUpdateCoordinator[UsageSnapshot]):
             "last_corrected_count": self._last_corrected,
             "freshness": snapshot.freshness.value,
             "backfill_pages_completed": self._backfill_pages,
-            "backfill_pages_total": 53,
+            "backfill_pages_total": self._backfill_pages_total,
             "backfill_progress_percent": progress,
             "backfill_complete": state.backfill_complete,
             "repair_conditions": sorted(repairs),

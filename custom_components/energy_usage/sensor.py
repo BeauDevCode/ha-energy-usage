@@ -20,7 +20,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import EnergyUsageConfigEntry
-from .coordinator import EntergyDataUpdateCoordinator
+from .coordinator import EnergyUsageDataUpdateCoordinator
 from .entity import EnergyUsageEntity
 from .models import Freshness, UsageSnapshot
 
@@ -152,7 +152,7 @@ class EntergySensor(EnergyUsageEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: EntergyDataUpdateCoordinator,
+        coordinator: EnergyUsageDataUpdateCoordinator,
         public_id: str,
         description: EntergySensorEntityDescription,
     ) -> None:

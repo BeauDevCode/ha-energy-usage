@@ -812,7 +812,7 @@ async def test_confirmed_account_timezone_overrides_usage_fallback() -> None:
 async def test_transport_caps_normalized_intervals_if_parser_contract_changes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from custom_components.energy_usage.parser import parse_usage
+    from custom_components.energy_usage.providers.entergy.parser import parse_usage
 
     first = parse_usage(usage(512), source_time_zone="UTC", received_at=datetime.now(UTC))
     from dataclasses import replace
