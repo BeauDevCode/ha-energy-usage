@@ -34,6 +34,16 @@ _DELTA_SECONDS = re.compile(r"-?\d+(?:\.\d+)?\Z", re.ASCII)
 _HEADER_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Reject duplicate keys before a later value can hide a challenge."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PayloadError from None
+        result[key] = value
+    return result
+
+
 class ApiOperation(Enum):
     """The complete reviewed V1 method/path set."""
 
@@ -241,7 +251,7 @@ class EntergyApiClient:
         except TimeoutError, aiohttp.ClientError, OSError, ValueError:
             raise EnergyUsageError(ErrorCategory.TRANSIENT) from None
         try:
-            return json.loads(body)
+            return json.loads(body, object_pairs_hook=_unique_json_object)
         except UnicodeDecodeError, json.JSONDecodeError, ValueError:
             raise PayloadError from None
 

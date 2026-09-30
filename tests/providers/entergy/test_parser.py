@@ -53,6 +53,27 @@ def test_metadata_and_login_accept_only_reviewed_locations_and_aliases() -> None
         parse_client_metadata({"client_id": "unreviewed"})
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"token": "synthetic-token", "requiresMfa": True},
+        {"data": {"accessToken": "synthetic-token", "captchaRequired": False}},
+        {"token": "synthetic-token", "steps": [{"type": "consent"}]},
+        {"token": "synthetic-token", "data": {"token": "different-token"}},
+    ],
+)
+def test_login_rejects_token_with_unreviewed_response_fields(payload: object) -> None:
+    """A token cannot override an unreviewed authentication step or shape."""
+    with pytest.raises(PayloadError):
+        parse_login(payload)
+
+
+@pytest.mark.parametrize("payload", [{"unknown": "token"}, {"data": {"otp": "token"}}])
+def test_login_rejects_unreviewed_token_keys(payload: object) -> None:
+    with pytest.raises(PayloadError):
+        parse_login(payload)
+
+
 def test_account_aliases_masking_and_expected_identity() -> None:
     assert parse_accounts(fixture("accounts.json"))[0].account_id == "0001234567"
     for alias in ("accountId", "accountID", "account_id", "accountNumber", "account_number"):
@@ -312,11 +333,9 @@ def test_unknown_timezone_and_nonlist_hours_fail_closed() -> None:
         parse({"data": {"daily": {"electric": [{"hourly": {}}]}}})
 
 
-def test_nested_nonchallenge_lists_allow_valid_login() -> None:
-    assert (
-        parse_login({"token": "valid", "steps": [[{"nextAction": None}, 1, []]]}).access_token
-        == "valid"
-    )
+def test_nested_unreviewed_fields_cannot_accompany_valid_login_token() -> None:
+    with pytest.raises(PayloadError):
+        parse_login({"token": "valid", "steps": [[{"nextAction": None}, 1, []]]})
 
 
 @pytest.mark.parametrize("field", ["usage", "cost"])

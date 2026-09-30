@@ -10,6 +10,8 @@ Energy Usage separates its Home Assistant entities, ledger, statistics, and diag
 
 Entergy is the only available provider in the first release. Its account interface is unofficial and may change without notice. Interactive MFA, CAPTCHA, consent, and unknown redirects are unsupported and fail closed. Do not weaken account security to make the adapter work.
 
+The adapter rejects duplicate JSON keys and accepts a login token only in the reviewed token-only root or `data` shape. Extra fields stop setup as an unreviewed response rather than being ignored. A rejected HTTP 401/403 has no token and cannot by itself distinguish a one-time-code challenge from another sign-in rejection. The official Entergy app's ability to accept a code does not establish a supported challenge-completion API for this adapter.
+
 The reviewed Entergy response contains one signed usage value rather than independent import and return series. The adapter therefore requires an explicit confirmation that the selected service does not export energy to the grid. It is not compatible with solar export or net-metered locations. Any negative usage value pauses ingestion instead of being converted into returned energy. Negative signed cost is not treated as compensation. Cost is retained only when the same source interval explicitly supplies a validated USD currency.
 
 ## Provider roadmap
