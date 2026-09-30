@@ -45,6 +45,12 @@ class ApiOperation(Enum):
     WEEKLY_USAGE = ("GET", "/api/accounts/{account_id}/weeklyusage")
 
 
+def _mark_operation(error: EnergyUsageError, operation: ApiOperation) -> None:
+    """Attach only a reviewed operation name, preserving a deeper failure stage."""
+    if error.operation is None:
+        error.operation = operation.name.lower()
+
+
 class EntergyApiClient:
     """Use only fixed operations on the reviewed HTTPS origin."""
 
@@ -241,8 +247,12 @@ class EntergyApiClient:
 
     async def async_initialize(self, budget: RequestBudget) -> ClientMetadata:
         """Load client metadata through the bounded transport."""
-        payload = await self._request_json(ApiOperation.APP, budget)
-        result = _parse_reviewed(lambda: parse_client_metadata(payload))
+        try:
+            payload = await self._request_json(ApiOperation.APP, budget)
+            result = _parse_reviewed(lambda: parse_client_metadata(payload))
+        except EnergyUsageError as error:
+            _mark_operation(error, ApiOperation.APP)
+            raise
         self._client_id = result.client_id
         return result
 
@@ -250,12 +260,16 @@ class EntergyApiClient:
         """Authenticate once, retaining nothing from any failed login attempt."""
         self.clear_token()
         chain = budget
-        if self._client_id is None:
-            await self.async_initialize(chain)
-        payload = await self._request_json(ApiOperation.LOGIN, chain)
-        result = _parse_reviewed(lambda: parse_login(payload))
-        if _HEADER_CONTROL.search(result.access_token):
-            raise PayloadError from None
+        try:
+            if self._client_id is None:
+                await self.async_initialize(chain)
+            payload = await self._request_json(ApiOperation.LOGIN, chain)
+            result = _parse_reviewed(lambda: parse_login(payload))
+            if _HEADER_CONTROL.search(result.access_token):
+                raise PayloadError from None
+        except EnergyUsageError as error:
+            _mark_operation(error, ApiOperation.LOGIN)
+            raise
         self._access_token = result.access_token
 
     async def async_logout(self, budget: RequestBudget) -> None:
@@ -270,8 +284,12 @@ class EntergyApiClient:
 
     async def async_get_accounts(self, budget: RequestBudget) -> tuple[Account, ...]:
         """List strictly parsed accounts."""
-        payload = await self._request_json(ApiOperation.ACCOUNTS, budget)
-        accounts = _parse_reviewed(lambda: parse_accounts(payload))
+        try:
+            payload = await self._request_json(ApiOperation.ACCOUNTS, budget)
+            accounts = _parse_reviewed(lambda: parse_accounts(payload))
+        except EnergyUsageError as error:
+            _mark_operation(error, ApiOperation.ACCOUNTS)
+            raise
         self._account_zones.update(
             {account.account_id: account.time_zone for account in accounts if account.time_zone}
         )

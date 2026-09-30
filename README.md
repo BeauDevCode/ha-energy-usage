@@ -2,7 +2,7 @@
 
 ![Energy Usage icon](assets/energy-usage-icon.svg)
 
-Energy Usage is an independent Home Assistant integration that imports delayed utility energy intervals through reviewed provider adapters. Release `0.1.0-rc.1` supports one provider account and one service location. Entergy is the only available provider in this first release.
+Energy Usage is an independent Home Assistant integration that imports delayed utility energy intervals through reviewed provider adapters. Release `0.1.0-rc.2` supports one provider account and one service location. Entergy is the only available provider in this first release.
 
 Energy Usage is unofficial and is not affiliated with, endorsed by, or supported by any utility. Utility readings can arrive hours or days late. They are not live, real-time, revenue-grade, or bill-grade. Use the newest-interval and last-successful-fetch sensors to judge freshness.
 
@@ -14,6 +14,6 @@ Credentials are entered only through the trusted local Home Assistant config flo
 
 The default update interval is four hours and can be set from one to 24 hours, subject to the provider minimum. Normal reconciliation revisits recent intervals, while bounded background backfill imports the provider's declared historical range. A private canonical ledger retains correction history and baselines without putting account numbers or addresses in entity IDs, statistics IDs, or diagnostics.
 
-This release candidate supports Home Assistant 2026.9.3 and 2026.9.4 on Python 3.14. It is not yet published. Do not install a moving branch on a production Home Assistant system.
+This release candidate supports Home Assistant 2026.9.3 and 2026.9.4 on Python 3.14. Install only an exact published release artifact after verifying its checksum and attestation; do not install a moving branch on a production Home Assistant system.
 
 Read the [provider matrix](docs/PROVIDERS.md), [installation procedure](docs/INSTALL.md), [privacy model](docs/PRIVACY.md), [rollback procedure](docs/ROLLBACK.md), [security policy](SECURITY.md), [contribution guide](CONTRIBUTING.md), [attribution](NOTICE.md), and [changelog](CHANGELOG.md).
