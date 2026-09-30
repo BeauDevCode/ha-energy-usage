@@ -1,4 +1,4 @@
-"""Closed, value-free repair issue API for Entergy Usage."""
+"""Closed, value-free repair issue API for Energy Usage."""
 
 from __future__ import annotations
 

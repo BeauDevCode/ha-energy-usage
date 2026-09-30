@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,8 +15,17 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from custom_components import energy_usage as integration
 from custom_components.energy_usage.const import DOMAIN
-from custom_components.energy_usage.models import Freshness, UsageSnapshot
-from custom_components.energy_usage.sensor import SENSORS, EntergySensor
+from custom_components.energy_usage.models import (
+    Freshness,
+    ProviderCapabilities,
+    ProviderDescriptor,
+    UsageSnapshot,
+)
+from custom_components.energy_usage.sensor import (
+    EnergyUsageSensor,
+    all_sensor_descriptions,
+    sensor_descriptions,
+)
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -56,14 +65,40 @@ def status() -> dict[str, Any]:
     }
 
 
-def sensor(key: str, *, snap: UsageSnapshot | None = None) -> EntergySensor:
+def capabilities(
+    *,
+    supports_return: bool = True,
+    supports_cost: bool = True,
+    supports_compensation: bool = True,
+    currency: str | None = "USD",
+) -> ProviderCapabilities:
+    return ProviderCapabilities(
+        supports_import=True,
+        supports_return=supports_return,
+        supports_cost=supports_cost,
+        supports_compensation=supports_compensation,
+        currency=currency,
+        interval_duration=timedelta(hours=1),
+        publication_delay=timedelta(hours=6),
+        historical_range=timedelta(days=370),
+        minimum_poll_interval=timedelta(hours=1),
+    )
+
+
+def sensor(key: str, *, snap: UsageSnapshot | None = None) -> EnergyUsageSensor:
     coordinator = SimpleNamespace(data=snap or snapshot(), diagnostics=status)
-    description = next(item for item in SENSORS if item.key == key)
-    return EntergySensor(coordinator, PUBLIC_ID, description)  # type: ignore[arg-type]
+    description = next(item for item in all_sensor_descriptions(currency="USD") if item.key == key)
+    return EnergyUsageSensor(  # type: ignore[arg-type]
+        coordinator,
+        PUBLIC_ID,
+        "Example Utility",
+        description,
+    )
 
 
 def test_exact_sensor_inventory_and_no_monotonic_lifetime_totals() -> None:
-    keys = {item.key for item in SENSORS}
+    sensors = all_sensor_descriptions(currency="USD")
+    keys = {item.key for item in sensors}
     assert keys == {
         "newest_interval",
         "freshness",
@@ -89,8 +124,46 @@ def test_exact_sensor_inventory_and_no_monotonic_lifetime_totals() -> None:
         "last_corrected_count",
         "backfill_progress",
     }
-    assert all(item.state_class != SensorStateClass.TOTAL_INCREASING for item in SENSORS)
-    assert all("lifetime" not in item.key and not item.key.startswith("total_") for item in SENSORS)
+    assert all(item.state_class != SensorStateClass.TOTAL_INCREASING for item in sensors)
+    assert all("lifetime" not in item.key and not item.key.startswith("total_") for item in sensors)
+
+
+@pytest.mark.parametrize(
+    "caps,excluded_prefixes",
+    [
+        (
+            capabilities(
+                supports_return=False,
+                supports_cost=False,
+                supports_compensation=False,
+                currency=None,
+            ),
+            ("latest_return", "today_return", "latest_cost", "latest_compensation"),
+        ),
+        (
+            capabilities(supports_cost=False, supports_compensation=False, currency=None),
+            ("latest_cost", "latest_compensation"),
+        ),
+        (capabilities(supports_compensation=False), ("latest_compensation",)),
+    ],
+)
+def test_capabilities_omit_unsupported_sensor_families(
+    caps: ProviderCapabilities, excluded_prefixes: tuple[str, ...]
+) -> None:
+    keys = {item.key for item in sensor_descriptions(caps)}
+    assert {"latest_import", "today_import", "seven_day_import", "month_import"} <= keys
+    for prefix in excluded_prefixes:
+        family = prefix.split("_", 1)[1]
+        assert not any(key.endswith(family) for key in keys)
+
+
+def test_money_sensors_use_declared_provider_currency() -> None:
+    money = [
+        item
+        for item in sensor_descriptions(capabilities(currency="EUR"))
+        if item.device_class == SensorDeviceClass.MONETARY
+    ]
+    assert money and {item.native_unit_of_measurement for item in money} == {"EUR"}
 
 
 def test_rolling_values_map_exactly_and_money_can_be_absent() -> None:
@@ -114,7 +187,7 @@ def test_freshness_and_timestamp_values(freshness: Freshness) -> None:
 def test_diagnostic_defaults_and_backfill_never_claims_early_completion() -> None:
     disabled = {
         item.key
-        for item in SENSORS
+        for item in all_sensor_descriptions(currency="USD")
         if item.entity_category == EntityCategory.DIAGNOSTIC
         and item.entity_registry_enabled_default is False
     }
@@ -141,8 +214,9 @@ def test_generic_device_and_public_unique_ids_have_no_attributes() -> None:
 
 
 def test_sensor_metadata_uses_translations_and_rolling_total_state() -> None:
-    energy = next(item for item in SENSORS if item.key == "today_import")
-    freshness = next(item for item in SENSORS if item.key == "freshness")
+    sensors = all_sensor_descriptions(currency="USD")
+    energy = next(item for item in sensors if item.key == "today_import")
+    freshness = next(item for item in sensors if item.key == "freshness")
     assert not isinstance(energy.name, str) and energy.translation_key == "today_import"
     assert energy.state_class == SensorStateClass.TOTAL
     assert freshness.device_class == SensorDeviceClass.ENUM
@@ -156,8 +230,10 @@ def test_translation_files_are_identical_and_cover_every_sensor() -> None:
     )
     assert strings == translations
     entities = strings["entity"]["sensor"]
-    assert set(entities) == {item.key for item in SENSORS}
+    assert set(entities) == {item.key for item in all_sensor_descriptions(currency="USD")}
     assert set(entities["freshness"]["state"]) == {item.value for item in Freshness}
+    issue_copy = json.dumps(strings["issues"], sort_keys=True)
+    assert "Entergy" not in issue_copy and "both USD" not in issue_copy
 
 
 class PlatformCoordinator(DataUpdateCoordinator[UsageSnapshot]):
@@ -212,6 +288,8 @@ async def test_real_sensor_platform_state_registry_and_coordinator_availability(
     ledger = Mock()
     ledger.state.revision = 1
     client = Mock(authenticated=False)
+    client.descriptor = ProviderDescriptor("entergy", "Entergy", frozenset({"US"}))
+    client.capabilities = capabilities()
     client.async_logout = AsyncMock()
     client.clear_token = Mock()
     with (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -10,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from custom_components.energy_usage import EnergyUsageRuntimeData
 from custom_components.energy_usage.diagnostics import async_get_config_entry_diagnostics
+from custom_components.energy_usage.models import ProviderCapabilities, ProviderDescriptor
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component import common  # type: ignore[import-untyped]
 
@@ -17,6 +19,19 @@ PUBLIC_ID = "a" * 32
 EXPECTED = {
     "integration_version",
     "home_assistant_version",
+    "provider_key",
+    "location_public_id",
+    "provider_schema_version",
+    "ledger_schema_version",
+    "supports_import",
+    "supports_return",
+    "supports_cost",
+    "supports_compensation",
+    "provider_currency",
+    "interval_seconds",
+    "publication_delay_seconds",
+    "historical_range_days",
+    "minimum_poll_seconds",
     "configured_poll_seconds",
     "next_poll_seconds",
     "last_successful_fetch",
@@ -31,6 +46,23 @@ EXPECTED = {
     "backfill_pages_total",
     "backfill_complete",
 }
+
+
+def provider() -> SimpleNamespace:
+    return SimpleNamespace(
+        descriptor=ProviderDescriptor("example", "Example Utility", frozenset({"US"})),
+        capabilities=ProviderCapabilities(
+            supports_import=True,
+            supports_return=True,
+            supports_cost=True,
+            supports_compensation=True,
+            currency="USD",
+            interval_duration=timedelta(hours=1),
+            publication_delay=timedelta(hours=6),
+            historical_range=timedelta(days=370),
+            minimum_poll_interval=timedelta(hours=1),
+        ),
+    )
 
 
 async def test_diagnostics_exact_allowlist_is_fresh_json_and_excludes_canaries(
@@ -69,9 +101,14 @@ async def test_diagnostics_exact_allowlist_is_fresh_json_and_excludes_canaries(
         data={"payload": canary},
         last_exception=RuntimeError(canary),
     )
+    private_provider = provider()
+    private_provider.private_location_id = canary
+    private_provider.nickname = canary
+    private_provider.address = canary
+    private_provider.raw_payload = {canary: canary}
     entry.runtime_data = EnergyUsageRuntimeData(
-        cast(Any, SimpleNamespace(access_token=canary, url=canary, headers={canary: canary})),
-        cast(Any, SimpleNamespace(raw=canary)),
+        cast(Any, private_provider),
+        cast(Any, SimpleNamespace(raw=canary, state=SimpleNamespace(schema_version=2))),
         cast(Any, coordinator),
     )
     integration = SimpleNamespace(version="0.1.1")
@@ -85,7 +122,11 @@ async def test_diagnostics_exact_allowlist_is_fresh_json_and_excludes_canaries(
     assert result["home_assistant_version"] != "99"
     assert result["freshness"] == "delayed"
     encoded = json.dumps(result, sort_keys=True)
-    assert canary not in encoded and PUBLIC_ID not in encoded
+    assert canary not in encoded
+    assert result["provider_key"] == "example"
+    assert result["location_public_id"] == PUBLIC_ID
+    assert result["supports_cost"] is True
+    assert result["provider_currency"] == "USD"
     result["retained_interval_count"] = 999
     assert coordinator.diagnostics()["retained_interval_count"] == 12
 
@@ -95,7 +136,12 @@ async def test_diagnostics_resolves_manifest_and_home_assistant_versions(
 ) -> None:
     from homeassistant.const import __version__ as home_assistant_version
 
-    entry = common.MockConfigEntry(domain="energy_usage", version=99, data={})
+    entry = common.MockConfigEntry(
+        domain="energy_usage",
+        version=99,
+        unique_id=PUBLIC_ID,
+        data={"provider_schema_version": 1},
+    )
     entry.add_to_hass(hass)
     status = {
         key: None
@@ -104,8 +150,8 @@ async def test_diagnostics_resolves_manifest_and_home_assistant_versions(
     }
     coordinator = SimpleNamespace(diagnostics=lambda: status)
     entry.runtime_data = EnergyUsageRuntimeData(
-        cast(Any, SimpleNamespace()),
-        cast(Any, SimpleNamespace()),
+        cast(Any, provider()),
+        cast(Any, SimpleNamespace(state=SimpleNamespace(schema_version=2))),
         cast(Any, coordinator),
     )
     result = await async_get_config_entry_diagnostics(hass, entry)

@@ -81,12 +81,12 @@
       "description": "The private usage history was written by a newer integration version. Install a compatible version before retrying."
     },
     "schema_drift": {
-      "title": "Entergy data format changed",
+      "title": "Energy provider data format changed",
       "description": "The latest utility response could not be validated. The last verified usage data remains available."
     },
     "currency_mismatch": {
       "title": "Cost data is unavailable",
-      "description": "Energy usage remains available, but cost data is hidden until the utility and Home Assistant currencies are both USD."
+      "description": "Energy usage remains available, but money data is hidden until the provider and Home Assistant currencies match."
     },
     "data_retraction": {
       "title": "Unexpected usage revision quarantined",
@@ -94,7 +94,7 @@
     },
     "legacy_energy_source": {
       "title": "Update Energy dashboard sources",
-      "description": "Legacy total sensors have been disabled. Select the new Entergy statistics sources in the Energy dashboard. Historical legacy data has not been deleted."
+      "description": "Legacy total sensors have been disabled. Select the new Energy Usage statistics sources in the Energy dashboard. Historical legacy data has not been deleted."
     },
     "legacy_entity_id": {
       "title": "Entity IDs changed for privacy",

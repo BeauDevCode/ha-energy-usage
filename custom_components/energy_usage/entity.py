@@ -18,6 +18,7 @@ class EnergyUsageEntity(CoordinatorEntity[EnergyUsageDataUpdateCoordinator]):
         self,
         coordinator: EnergyUsageDataUpdateCoordinator,
         public_id: str,
+        provider_name: str,
     ) -> None:
         super().__init__(coordinator)
         self._attr_device_info = DeviceInfo(
@@ -25,5 +26,5 @@ class EnergyUsageEntity(CoordinatorEntity[EnergyUsageDataUpdateCoordinator]):
             entry_type=DeviceEntryType.SERVICE,
             name="Energy Usage",
             manufacturer="Energy Usage",
-            model="Cloud energy usage",
+            model=provider_name,
         )
