@@ -3,6 +3,7 @@
 ## [0.1.0-rc.2] — Release candidate
 
 - Show a specific setup error when the required no-export confirmation is missing, without attempting provider authentication. No provider transport or credential behavior changed.
+- Distinguish provider app, sign-in and service-location setup failures. Log only an allowlisted operation, error category and numeric HTTP status; never log credentials or response bodies, and do not claim a rejected request proves the password is wrong.
 
 ## [0.1.0-rc.1] — Release candidate
 

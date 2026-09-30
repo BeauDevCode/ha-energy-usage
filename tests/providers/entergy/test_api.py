@@ -626,6 +626,7 @@ async def test_second_auth_failure_clears_token_and_stops(second_status: int) ->
     with pytest.raises(AuthError) as caught:
         await subject.async_get_accounts(api.RequestBudget())
     assert caught.value.status == second_status
+    assert caught.value.operation == "accounts"
     assert subject.access_token is None
     assert len(session.calls) == 3
 
@@ -633,8 +634,9 @@ async def test_second_auth_failure_clears_token_and_stops(second_status: int) ->
 async def test_invalid_credentials_during_auth_refresh_never_loop() -> None:
     session = FakeSession(FakeResponse({}, status=403), FakeResponse({}, status=401))
     subject = authenticated(session)
-    with pytest.raises(AuthError):
+    with pytest.raises(AuthError) as caught:
         await subject.async_get_accounts(api.RequestBudget())
+    assert caught.value.operation == "login"
     assert subject.access_token is None
     assert [urlsplit(url).path for _, url, _ in session.calls] == ["/api/accounts", "/api/login"]
 
