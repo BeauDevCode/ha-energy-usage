@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.0-rc.3] — Release candidate
+
+- Update the Entergy adapter's mobile app version from `3.59.0` to `3.62.0`. On September 30, the provider's public app metadata advertised minimum versions `3.60.0` for iOS and `3.62.0` for Android, so the previous pin was below both. This is a compatibility correction; successful sign-in and utility import still require a separate live test.
+- Preserve the same endpoint, credential fields, request bounds, privacy protections, no-export limitation, and supported Home Assistant versions.
+
 ## [0.1.0-rc.2] — Release candidate
 
 - Show a specific setup error when the required no-export confirmation is missing, without attempting provider authentication. No provider transport or credential behavior changed.

@@ -21,7 +21,7 @@ def test_permanent_product_identity() -> None:
     assert list(manifest) == ["domain", "name", *sorted(set(manifest) - {"domain", "name"})]
     assert manifest["domain"] == "energy_usage"
     assert manifest["name"] == "Energy Usage"
-    assert manifest["version"] == "0.1.0-rc.2"
+    assert manifest["version"] == "0.1.0-rc.3"
     assert manifest["single_config_entry"] is True
     assert not (ROOT / "custom_components" / "entergy_mobile").exists()
     assert "BeauDevCode/ha-energy-usage" in manifest["documentation"]
@@ -58,7 +58,7 @@ def test_release_archive_policy_uses_only_generic_component_tree() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "custom_components/energy_usage/" in workflow
     assert "custom_components/entergy_mobile/" not in workflow
-    assert "ha-energy-usage-0.1.0-rc.2.zip" in workflow
+    assert "ha-energy-usage-0.1.0-rc.3.zip" in workflow
 
 
 def test_public_documentation_describes_the_actual_release_and_limits() -> None:
@@ -76,7 +76,7 @@ def test_public_documentation_describes_the_actual_release_and_limits() -> None:
     combined = "\n".join(documents.values())
 
     assert "Energy Usage" in documents["README.md"]
-    assert "0.1.0-rc.2" in documents["README.md"]
+    assert "0.1.0-rc.3" in documents["README.md"]
     assert "one service location" in combined
     assert "not bill-grade" in combined
     assert "delayed" in combined
@@ -118,10 +118,10 @@ def test_development_and_ownership_metadata_use_permanent_identity() -> None:
     lock = (ROOT / "uv.lock").read_text()
     owners = (ROOT / ".github" / "CODEOWNERS").read_text()
     assert 'name = "ha-energy-usage"' in project
-    assert 'version = "0.1.0-rc.2"' in project
+    assert 'version = "0.1.0-rc.3"' in project
     assert "provider-neutral Energy Usage" in project
     assert 'name = "ha-energy-usage"' in lock
-    assert 'version = "0.1.0rc2"' in lock
+    assert 'version = "0.1.0rc3"' in lock
     assert "custom_components/energy_usage/ @BeauDevCode" in owners
     assert "custom_components/entergy_mobile/" not in owners
 
@@ -160,12 +160,12 @@ def test_workflows_are_pinned_least_privilege_and_cover_every_gate() -> None:
 def test_release_workflow_requires_exact_tag_builds_and_attests_exact_archive() -> None:
     release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     for token in (
-        "refs/tags/v0.1.0-rc.2",
+        "refs/tags/v0.1.0-rc.3",
         "scripts/build_release.py",
-        "ha-energy-usage-0.1.0-rc.2.zip",
+        "ha-energy-usage-0.1.0-rc.3.zip",
         "sha256sum --check",
         "actions/attest@",
-        "subject-path: dist/ha-energy-usage-0.1.0-rc.2.zip",
+        "subject-path: dist/ha-energy-usage-0.1.0-rc.3.zip",
     ):
         assert token in release
 
@@ -179,7 +179,7 @@ def test_release_builder_is_deterministic_exact_and_embeds_commit(tmp_path: Path
                 sys.executable,
                 "scripts/build_release.py",
                 "--version",
-                "0.1.0-rc.2",
+                "0.1.0-rc.3",
                 "--commit",
                 commit,
                 "--output",
@@ -215,6 +215,6 @@ def test_release_builder_is_deterministic_exact_and_embeds_commit(tmp_path: Path
         assert archive.namelist() == sorted(expected_members)
         release = json.loads(archive.read("custom_components/energy_usage/release.json"))
         manifest = json.loads(archive.read("custom_components/energy_usage/manifest.json"))
-    assert release == {"commit": commit, "version": "0.1.0-rc.2"}
+    assert release == {"commit": commit, "version": "0.1.0-rc.3"}
     assert manifest["domain"] == "energy_usage"
     assert manifest["version"] == release["version"]

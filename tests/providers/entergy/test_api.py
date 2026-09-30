@@ -169,8 +169,9 @@ async def test_origin_only_six_approved_operations_and_query_keys() -> None:
         assert kwargs["timeout"].sock_read == 20
         assert kwargs["timeout"].total == 30
         assert set(kwargs["params"]) <= {"appVersion", "language", "view", "startDate"}
+        assert kwargs["params"]["appVersion"] == "3.62.0"
     assert session.calls[-2][2]["params"] == {
-        "appVersion": "3.59.0",
+        "appVersion": "3.62.0",
         "language": "en",
         "view": "day",
         "startDate": "2026-09-01",
