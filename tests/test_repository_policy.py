@@ -18,6 +18,7 @@ MANIFEST = COMPONENT / "manifest.json"
 
 def test_permanent_product_identity() -> None:
     manifest = json.loads(MANIFEST.read_text())
+    assert list(manifest) == ["domain", "name", *sorted(set(manifest) - {"domain", "name"})]
     assert manifest["domain"] == "energy_usage"
     assert manifest["name"] == "Energy Usage"
     assert manifest["version"] == "0.1.0-rc.1"
