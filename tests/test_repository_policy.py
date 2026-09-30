@@ -206,10 +206,12 @@ def test_release_builder_is_deterministic_exact_and_embeds_commit(tmp_path: Path
         ).splitlines()
     )
     with zipfile.ZipFile(outputs[0]) as archive:
-        assert set(archive.namelist()) == {
+        expected_members = {
             *tracked,
             "custom_components/energy_usage/release.json",
         }
+        assert set(archive.namelist()) == expected_members
+        assert archive.namelist() == sorted(expected_members)
         release = json.loads(archive.read("custom_components/energy_usage/release.json"))
         manifest = json.loads(archive.read("custom_components/energy_usage/manifest.json"))
     assert release == {"commit": commit, "version": "0.1.0-rc.1"}

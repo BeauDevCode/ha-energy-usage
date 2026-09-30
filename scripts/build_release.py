@@ -76,9 +76,10 @@ def build(*, version: str, commit: str, output: Path) -> None:
         temporary_path = Path(temporary.name)
     try:
         with zipfile.ZipFile(temporary_path, "w") as archive:
-            for path in files:
-                _write(archive, path, _git("show", f"{commit}:{path}"))
-            _write(archive, f"{COMPONENT}release.json", metadata)
+            entries = {path: _git("show", f"{commit}:{path}") for path in files}
+            entries[f"{COMPONENT}release.json"] = metadata
+            for path in sorted(entries):
+                _write(archive, path, entries[path])
         temporary_path.replace(output)
     finally:
         temporary_path.unlink(missing_ok=True)
