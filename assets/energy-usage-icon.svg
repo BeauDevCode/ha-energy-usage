@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Energy Usage</title>
+  <desc id="desc">A white lightning bolt over rising energy bars on a blue and green rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="24" y1="20" x2="232" y2="236" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#155EEF"/>
+      <stop offset="1" stop-color="#0E9384"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="url(#background)"/>
+  <rect x="46" y="166" width="28" height="44" rx="8" fill="#B8F3E6"/>
+  <rect x="87" y="142" width="28" height="68" rx="8" fill="#B8F3E6"/>
+  <rect x="128" y="118" width="28" height="92" rx="8" fill="#B8F3E6"/>
+  <rect x="169" y="94" width="28" height="116" rx="8" fill="#B8F3E6"/>
+  <path d="M136 35 77 125h42l-10 73 70-105h-45l2-58Z" fill="#FFFFFF" stroke="#0B4A6F" stroke-width="8" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,197 @@
+{
+  "title": "Energy Usage",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Choose energy provider",
+        "description": "Select the United States utility provider for this one service location.",
+        "data": {
+          "provider_key": "Energy provider"
+        }
+      },
+      "auth": {
+        "title": "Provider login",
+        "description": "Your username and password are stored in Home Assistant configuration to reconnect after a restart. Enter them only through your trusted local Home Assistant connection.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "language": "Language",
+          "confirm_no_export": "I confirm this service does not send energy back to the grid (no solar export or net metering)"
+        }
+      },
+      "location": {
+        "title": "Choose one service location",
+        "description": "Select the single energy service location to monitor.",
+        "data": {
+          "location": "Service location"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Your username and password are stored in Home Assistant configuration to reconnect after a restart. Sign in to the same provider account and location.",
+        "data": {
+          "username": "Username",
+          "password": "Password",
+          "language": "Language",
+          "confirm_no_export": "I confirm this service does not send energy back to the grid (no solar export or net metering)"
+        }
+      },
+      "time_zone": {
+        "title": "Select service timezone",
+        "description": "The provider did not supply a timezone. Choose the IANA timezone used for local usage dates and summaries.",
+        "data": {
+          "time_zone": "Service timezone"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the energy provider.",
+      "invalid_auth": "Invalid username or password.",
+      "unsupported_challenge": "The provider requires an interactive login step that this integration cannot complete. Keep account security enabled.",
+      "no_locations": "Login worked, but no service locations were returned.",
+      "invalid_location": "The provider returned an invalid or unsupported service location.",
+      "invalid_time_zone": "Select a valid IANA timezone.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "unsupported_provider": "This energy provider is not available in this release.",
+      "invalid_location": "Select a service location returned by this sign-in.",
+      "location_mismatch": "The new sign-in does not expose the configured service location.",
+      "unique_id_mismatch": "The configured Energy Usage identity changed unexpectedly.",
+      "reauth_successful": "Credentials updated successfully.",
+      "single_instance_allowed": "Energy Usage currently supports one service location."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energy Usage options",
+        "description": "Control how often verified utility usage data is pulled.",
+        "data": {
+          "scan_interval_seconds": "Data update interval in seconds"
+        }
+      }
+    }
+  },
+  "issues": {
+    "ledger_corrupt": {
+      "title": "Usage history needs repair",
+      "description": "The private usage history could not be verified. Restore a known-good backup before retrying."
+    },
+    "ledger_future": {
+      "title": "Usage history is from a newer version",
+      "description": "The private usage history was written by a newer integration version. Install a compatible version before retrying."
+    },
+    "schema_drift": {
+      "title": "Energy provider data format changed",
+      "description": "The latest utility response could not be validated. The last verified usage data remains available."
+    },
+    "currency_mismatch": {
+      "title": "Cost data is unavailable",
+      "description": "Energy usage remains available, but money data is hidden until the provider and Home Assistant currencies match."
+    },
+    "timezone_mismatch": {
+      "title": "Service timezone changed",
+      "description": "New utility data is paused because the provider reported a different service timezone. The last verified usage data remains available."
+    },
+    "data_retraction": {
+      "title": "Unexpected usage revision quarantined",
+      "description": "A large or explicit usage revision was quarantined. The last verified usage history remains unchanged."
+    },
+    "legacy_energy_source": {
+      "title": "Update Energy dashboard sources",
+      "description": "Legacy total sensors have been disabled. Select the new Energy Usage statistics sources in the Energy dashboard. Historical legacy data has not been deleted."
+    },
+    "legacy_entity_id": {
+      "title": "Entity IDs changed for privacy",
+      "description": "Legacy entity IDs were renamed to remove personal information. Update automations, scripts, and dashboards that referenced them."
+    },
+    "backfill_stalled": {
+      "title": "Historical usage import is stalled",
+      "description": "Historical usage has not progressed while utility access remains healthy. Current verified data remains available."
+    },
+    "ledger_repair": {
+      "title": "Usage ledger needs repair",
+      "description": "Migration could not verify local usage storage or finish registry updates. Restore a known-good backup and retry. Do not delete usage history."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "newest_interval": {
+        "name": "Newest interval"
+      },
+      "freshness": {
+        "name": "Data freshness",
+        "state": {
+          "fresh": "Fresh",
+          "delayed": "Delayed",
+          "stale": "Stale",
+          "unknown": "Unknown"
+        }
+      },
+      "latest_import": {
+        "name": "Latest interval imported energy"
+      },
+      "today_import": {
+        "name": "Today imported energy"
+      },
+      "seven_day_import": {
+        "name": "Seven-day imported energy"
+      },
+      "month_import": {
+        "name": "Month-to-date imported energy"
+      },
+      "latest_return": {
+        "name": "Latest interval returned energy"
+      },
+      "today_return": {
+        "name": "Today returned energy"
+      },
+      "seven_day_return": {
+        "name": "Seven-day returned energy"
+      },
+      "month_return": {
+        "name": "Month-to-date returned energy"
+      },
+      "latest_cost": {
+        "name": "Latest interval cost"
+      },
+      "today_cost": {
+        "name": "Today cost"
+      },
+      "seven_day_cost": {
+        "name": "Seven-day cost"
+      },
+      "month_cost": {
+        "name": "Month-to-date cost"
+      },
+      "latest_compensation": {
+        "name": "Latest interval compensation"
+      },
+      "today_compensation": {
+        "name": "Today compensation"
+      },
+      "seven_day_compensation": {
+        "name": "Seven-day compensation"
+      },
+      "month_compensation": {
+        "name": "Month-to-date compensation"
+      },
+      "last_successful_fetch": {
+        "name": "Last successful fetch"
+      },
+      "retained_interval_count": {
+        "name": "Retained interval count"
+      },
+      "estimated_interval_count": {
+        "name": "Estimated interval count"
+      },
+      "last_corrected_count": {
+        "name": "Last refresh correction count"
+      },
+      "backfill_progress": {
+        "name": "Historical import progress"
+      }
+    }
+  }
+}

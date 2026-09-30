@@ -1,0 +1,30 @@
+"""Provider-neutral Energy Usage entities."""
+
+from __future__ import annotations
+
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN
+from .coordinator import EnergyUsageDataUpdateCoordinator
+
+
+class EnergyUsageEntity(CoordinatorEntity[EnergyUsageDataUpdateCoordinator]):
+    """Base entity for one pseudonymous service location."""
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: EnergyUsageDataUpdateCoordinator,
+        public_id: str,
+        provider_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, public_id)},
+            entry_type=DeviceEntryType.SERVICE,
+            name="Energy Usage",
+            manufacturer="Energy Usage",
+            model=provider_name,
+        )
